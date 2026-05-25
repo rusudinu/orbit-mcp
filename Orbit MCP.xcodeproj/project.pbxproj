@@ -14,19 +14,11 @@
 			remoteGlobalIDString = 3C400CDA2FC49AAC0008BFA7;
 			remoteInfo = "Orbit MCP";
 		};
-		3C400CF32FC49AAD0008BFA7 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 3C400CD32FC49AAC0008BFA7 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 3C400CDA2FC49AAC0008BFA7;
-			remoteInfo = "Orbit MCP";
-		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		3C400CDB2FC49AAC0008BFA7 /* Orbit MCP.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Orbit MCP.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3C400CE82FC49AAD0008BFA7 /* Orbit MCPTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Orbit MCPTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
-		3C400CF22FC49AAD0008BFA7 /* Orbit MCPUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Orbit MCPUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -38,11 +30,6 @@
 		3C400CEB2FC49AAD0008BFA7 /* Orbit MCPTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "Orbit MCPTests";
-			sourceTree = "<group>";
-		};
-		3C400CF52FC49AAD0008BFA7 /* Orbit MCPUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "Orbit MCPUITests";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -62,13 +49,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		3C400CEF2FC49AAD0008BFA7 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -77,7 +57,6 @@
 			children = (
 				3C400CDD2FC49AAC0008BFA7 /* Orbit MCP */,
 				3C400CEB2FC49AAD0008BFA7 /* Orbit MCPTests */,
-				3C400CF52FC49AAD0008BFA7 /* Orbit MCPUITests */,
 				3C400CDC2FC49AAC0008BFA7 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -87,7 +66,6 @@
 			children = (
 				3C400CDB2FC49AAC0008BFA7 /* Orbit MCP.app */,
 				3C400CE82FC49AAD0008BFA7 /* Orbit MCPTests.xctest */,
-				3C400CF22FC49AAD0008BFA7 /* Orbit MCPUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -140,29 +118,6 @@
 			productReference = 3C400CE82FC49AAD0008BFA7 /* Orbit MCPTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		3C400CF12FC49AAD0008BFA7 /* Orbit MCPUITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 3C400D022FC49AAD0008BFA7 /* Build configuration list for PBXNativeTarget "Orbit MCPUITests" */;
-			buildPhases = (
-				3C400CEE2FC49AAD0008BFA7 /* Sources */,
-				3C400CEF2FC49AAD0008BFA7 /* Frameworks */,
-				3C400CF02FC49AAD0008BFA7 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				3C400CF42FC49AAD0008BFA7 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				3C400CF52FC49AAD0008BFA7 /* Orbit MCPUITests */,
-			);
-			name = "Orbit MCPUITests";
-			packageProductDependencies = (
-			);
-			productName = "Orbit MCPUITests";
-			productReference = 3C400CF22FC49AAD0008BFA7 /* Orbit MCPUITests.xctest */;
-			productType = "com.apple.product-type.bundle.ui-testing";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -177,10 +132,6 @@
 						CreatedOnToolsVersion = 26.5;
 					};
 					3C400CE72FC49AAD0008BFA7 = {
-						CreatedOnToolsVersion = 26.5;
-						TestTargetID = 3C400CDA2FC49AAC0008BFA7;
-					};
-					3C400CF12FC49AAD0008BFA7 = {
 						CreatedOnToolsVersion = 26.5;
 						TestTargetID = 3C400CDA2FC49AAC0008BFA7;
 					};
@@ -202,7 +153,6 @@
 			targets = (
 				3C400CDA2FC49AAC0008BFA7 /* Orbit MCP */,
 				3C400CE72FC49AAD0008BFA7 /* Orbit MCPTests */,
-				3C400CF12FC49AAD0008BFA7 /* Orbit MCPUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -216,13 +166,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		3C400CE62FC49AAD0008BFA7 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		3C400CF02FC49AAD0008BFA7 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -246,13 +189,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		3C400CEE2FC49AAD0008BFA7 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -260,11 +196,6 @@
 			isa = PBXTargetDependency;
 			target = 3C400CDA2FC49AAC0008BFA7 /* Orbit MCP */;
 			targetProxy = 3C400CE92FC49AAD0008BFA7 /* PBXContainerItemProxy */;
-		};
-		3C400CF42FC49AAD0008BFA7 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 3C400CDA2FC49AAC0008BFA7 /* Orbit MCP */;
-			targetProxy = 3C400CF32FC49AAD0008BFA7 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -509,44 +440,6 @@
 			};
 			name = Release;
 		};
-		3C400D032FC49AAD0008BFA7 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = AAAAAAAA;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.codingshadows.Orbit-MCPUITests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = "Orbit MCP";
-			};
-			name = Debug;
-		};
-		3C400D042FC49AAD0008BFA7 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = AAAAAAAA;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.codingshadows.Orbit-MCPUITests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = "Orbit MCP";
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -573,15 +466,6 @@
 			buildConfigurations = (
 				3C400D002FC49AAD0008BFA7 /* Debug */,
 				3C400D012FC49AAD0008BFA7 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		3C400D022FC49AAD0008BFA7 /* Build configuration list for PBXNativeTarget "Orbit MCPUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				3C400D032FC49AAD0008BFA7 /* Debug */,
-				3C400D042FC49AAD0008BFA7 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
