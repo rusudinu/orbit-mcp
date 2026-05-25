@@ -32,6 +32,7 @@ final class AppState: ObservableObject {
 
     @Published var serverStatus: ServerStatus = .stopped
     @Published var remindersAccess: AccessStatus = .unknown
+    @Published var calendarAccess: AccessStatus = .unknown
     /// 0 means "let the OS pick a free port".
     @AppStorage("orbit.mcp.preferredPort") var preferredPort: Int = 0
     /// The port the server is actually listening on. Persisted so the user's
@@ -39,13 +40,66 @@ final class AppState: ObservableObject {
     @AppStorage("orbit.mcp.lastPort") var lastPort: Int = 0
     @AppStorage("orbit.mcp.autoStart") var autoStart: Bool = true
 
+    /// Per-service tool exposure switches. Mutating these updates the live
+    /// `serviceFlags` so the running server immediately stops listing/handling
+    /// tools for the disabled service — no restart required.
+    @Published var remindersEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(remindersEnabled, forKey: Self.remindersEnabledKey)
+            syncServiceFlags()
+        }
+    }
+    @Published var calendarEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(calendarEnabled, forKey: Self.calendarEnabledKey)
+            syncServiceFlags()
+        }
+    }
+    @Published var notesEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(notesEnabled, forKey: Self.notesEnabledKey)
+            syncServiceFlags()
+        }
+    }
+
+    private static let remindersEnabledKey = "orbit.mcp.enable.reminders"
+    private static let calendarEnabledKey = "orbit.mcp.enable.calendar"
+    private static let notesEnabledKey = "orbit.mcp.enable.notes"
+
     let reminders = RemindersService()
+    let calendar = CalendarService()
+    let notes = NotesService()
+    let serviceFlags = ServiceFlags()
     private var server: MCPHTTPServer?
 
     init() {
+        let defaults = UserDefaults.standard
+        // `register` provides defaults but does not persist; existing user
+        // values still win and new installs default to enabled.
+        defaults.register(defaults: [
+            Self.remindersEnabledKey: true,
+            Self.calendarEnabledKey: true,
+            Self.notesEnabledKey: true
+        ])
+        self.remindersEnabled = defaults.bool(forKey: Self.remindersEnabledKey)
+        self.calendarEnabled = defaults.bool(forKey: Self.calendarEnabledKey)
+        self.notesEnabled = defaults.bool(forKey: Self.notesEnabledKey)
+        self.serviceFlags.update(
+            reminders: remindersEnabled,
+            calendar: calendarEnabled,
+            notes: notesEnabled
+        )
         Task { @MainActor in
             await self.bootstrap()
         }
+    }
+
+    private func syncServiceFlags() {
+        serviceFlags.update(
+            reminders: remindersEnabled,
+            calendar: calendarEnabled,
+            notes: notesEnabled
+        )
     }
 
     private func bootstrap() async {
@@ -53,8 +107,11 @@ final class AppState: ObservableObject {
         if autoStart {
             await startServer()
         }
-        if remindersAccess == .unknown {
+        if remindersEnabled, remindersAccess == .unknown {
             await requestRemindersAccess()
+        }
+        if calendarEnabled, calendarAccess == .unknown {
+            await requestCalendarAccess()
         }
     }
 
@@ -85,18 +142,17 @@ final class AppState: ObservableObject {
     }
 
     func refreshAccessStatus() {
-        let status = EKEventStore.authorizationStatus(for: .reminder)
+        remindersAccess = mapStatus(EKEventStore.authorizationStatus(for: .reminder))
+        calendarAccess = mapStatus(EKEventStore.authorizationStatus(for: .event))
+    }
+
+    private func mapStatus(_ status: EKAuthorizationStatus) -> AccessStatus {
         switch status {
-        case .notDetermined:
-            remindersAccess = .unknown
-        case .denied:
-            remindersAccess = .denied
-        case .restricted:
-            remindersAccess = .restricted
-        case .fullAccess, .authorized, .writeOnly:
-            remindersAccess = .granted
-        @unknown default:
-            remindersAccess = .unknown
+        case .notDetermined: return .unknown
+        case .denied: return .denied
+        case .restricted: return .restricted
+        case .fullAccess, .authorized, .writeOnly: return .granted
+        @unknown default: return .unknown
         }
     }
 
@@ -104,6 +160,12 @@ final class AppState: ObservableObject {
         remindersAccess = .requesting
         let granted = await reminders.requestAccess()
         remindersAccess = granted ? .granted : .denied
+    }
+
+    func requestCalendarAccess() async {
+        calendarAccess = .requesting
+        let granted = await calendar.requestAccess()
+        calendarAccess = granted ? .granted : .denied
     }
 
     func startServer() async {
@@ -121,7 +183,7 @@ final class AppState: ObservableObject {
 
         var lastError: Error?
         for candidate in attempts {
-            let server = MCPHTTPServer(port: candidate, reminders: reminders)
+            let server = MCPHTTPServer(port: candidate, reminders: reminders, calendar: calendar, notes: notes, serviceFlags: serviceFlags)
             do {
                 let bound = try await server.start()
                 self.server = server

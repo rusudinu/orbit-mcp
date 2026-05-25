@@ -14,14 +14,20 @@ actor MCPHTTPServer {
     private let port: UInt16
     private var boundPort: UInt16 = 0
     private let reminders: RemindersService
+    private let calendar: CalendarService
+    private let notes: NotesService
+    private let serviceFlags: ServiceFlags
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private let handler: MCPRequestHandler
 
-    init(port: UInt16, reminders: RemindersService) {
+    init(port: UInt16, reminders: RemindersService, calendar: CalendarService, notes: NotesService, serviceFlags: ServiceFlags) {
         self.port = port
         self.reminders = reminders
-        self.handler = MCPRequestHandler(reminders: reminders)
+        self.calendar = calendar
+        self.notes = notes
+        self.serviceFlags = serviceFlags
+        self.handler = MCPRequestHandler(reminders: reminders, calendar: calendar, notes: notes, serviceFlags: serviceFlags)
     }
 
     func start() async throws -> UInt16 {

@@ -53,26 +53,82 @@ struct MenuBarView: View {
                 Text(statusText).font(.subheadline.weight(.medium))
                 Spacer()
             }
-            HStack(spacing: 6) {
-                Image(systemName: accessIcon)
-                    .foregroundStyle(accessTint)
-                Text(accessText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if state.remindersAccess != .granted {
-                    Button("Grant access") {
-                        Task { await state.requestRemindersAccess() }
-                    }
-                    .buttonStyle(.borderless)
-                    .font(.caption)
-                }
-            }
+            accessRow(
+                label: "Reminders",
+                status: state.remindersAccess,
+                grant: { Task { await state.requestRemindersAccess() } }
+            )
+            accessRow(
+                label: "Calendar",
+                status: state.calendarAccess,
+                grant: { Task { await state.requestCalendarAccess() } }
+            )
+            accessRow(
+                label: "Notes",
+                status: .granted, // managed by macOS Automation prompt on first call
+                hint: "Notes uses macOS Automation. The first notes_* call will prompt for permission.",
+                grant: nil
+            )
             if case .failed(let message) = state.serverStatus {
                 Text(message)
                     .font(.caption)
                     .foregroundStyle(.red)
             }
+        }
+    }
+
+    private func accessRow(
+        label: String,
+        status: AppState.AccessStatus,
+        hint: String? = nil,
+        grant: (() -> Void)?
+    ) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon(for: status))
+                .foregroundStyle(tint(for: status))
+            Text("\(label): \(text(for: status))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let hint {
+                Image(systemName: "info.circle")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .help(hint)
+            }
+            Spacer()
+            if status != .granted, let grant {
+                Button("Grant") { grant() }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+            }
+        }
+    }
+
+    private func icon(for status: AppState.AccessStatus) -> String {
+        switch status {
+        case .granted: return "checkmark.seal.fill"
+        case .denied, .restricted: return "exclamationmark.triangle.fill"
+        case .requesting: return "clock.fill"
+        case .unknown: return "questionmark.circle"
+        }
+    }
+
+    private func tint(for status: AppState.AccessStatus) -> Color {
+        switch status {
+        case .granted: return .green
+        case .denied, .restricted: return .red
+        case .requesting: return .orange
+        case .unknown: return .secondary
+        }
+    }
+
+    private func text(for status: AppState.AccessStatus) -> String {
+        switch status {
+        case .granted: return "granted"
+        case .denied: return "denied"
+        case .restricted: return "restricted"
+        case .requesting: return "requesting…"
+        case .unknown: return "not granted"
         }
     }
 
@@ -232,34 +288,6 @@ struct MenuBarView: View {
         case .starting: return "Starting…"
         case .failed: return "Server failed"
         case .stopped: return "Server stopped"
-        }
-    }
-
-    private var accessIcon: String {
-        switch state.remindersAccess {
-        case .granted: return "checkmark.seal.fill"
-        case .denied, .restricted: return "exclamationmark.triangle.fill"
-        case .requesting: return "clock.fill"
-        case .unknown: return "questionmark.circle"
-        }
-    }
-
-    private var accessTint: Color {
-        switch state.remindersAccess {
-        case .granted: return .green
-        case .denied, .restricted: return .red
-        case .requesting: return .orange
-        case .unknown: return .secondary
-        }
-    }
-
-    private var accessText: String {
-        switch state.remindersAccess {
-        case .granted: return "Reminders access granted"
-        case .denied: return "Reminders access denied"
-        case .restricted: return "Reminders access restricted"
-        case .requesting: return "Requesting access…"
-        case .unknown: return "Reminders access not granted"
         }
     }
 

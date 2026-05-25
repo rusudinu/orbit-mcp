@@ -61,7 +61,7 @@ actor RemindersService {
                 id: cal.calendarIdentifier,
                 title: cal.title,
                 source: cal.source?.title ?? "",
-                colorHex: cal.cgColor.flatMap { hexString(from: $0) },
+                colorHex: cal.cgColor.flatMap { hexFromCGColor($0) },
                 isDefault: cal.calendarIdentifier == store.defaultCalendarForNewReminders()?.calendarIdentifier
             )
         }
@@ -300,12 +300,4 @@ nonisolated enum RemindersError: LocalizedError {
         case .invalidInput: return -32602
         }
     }
-}
-
-nonisolated private func hexString(from color: CGColor) -> String? {
-    guard let comps = color.components, comps.count >= 3 else { return nil }
-    let r = Int(round(max(0, min(1, comps[0])) * 255))
-    let g = Int(round(max(0, min(1, comps[1])) * 255))
-    let b = Int(round(max(0, min(1, comps[2])) * 255))
-    return String(format: "#%02X%02X%02X", r, g, b)
 }

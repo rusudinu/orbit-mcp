@@ -11,12 +11,16 @@ import Foundation
 actor MCPRequestHandler {
     let sessionID: String = UUID().uuidString
     private let reminders: RemindersService
+    private let calendar: CalendarService
+    private let notes: NotesService
     private let serverName = "orbit-mcp"
-    private let serverVersion = "0.1.0"
+    private let serverVersion = "0.2.0"
     private let protocolVersion = "2025-06-18"
 
-    init(reminders: RemindersService) {
+    init(reminders: RemindersService, calendar: CalendarService, notes: NotesService) {
         self.reminders = reminders
+        self.calendar = calendar
+        self.notes = notes
     }
 
     /// Returns nil for notifications (no response should be sent).
@@ -69,6 +73,12 @@ actor MCPRequestHandler {
         } catch let err as RemindersError {
             if isNotification { return nil }
             return Self.errorObject(id: id, code: err.mcpCode, message: err.errorDescription ?? "Reminders error")
+        } catch let err as CalendarError {
+            if isNotification { return nil }
+            return Self.errorObject(id: id, code: err.mcpCode, message: err.errorDescription ?? "Calendar error")
+        } catch let err as NotesError {
+            if isNotification { return nil }
+            return Self.errorObject(id: id, code: err.mcpCode, message: err.errorDescription ?? "Notes error")
         } catch {
             if isNotification { return nil }
             return Self.errorObject(id: id, code: -32603, message: error.localizedDescription)
@@ -89,7 +99,7 @@ actor MCPRequestHandler {
                 "capabilities": [
                     "tools": [:]
                 ],
-                "instructions": "Tools to read and modify the user's data on this Mac. Currently exposes Apple Reminders; more sources (Notes, Calendar, etc.) may be added later. For Reminders, start by calling reminders_list_lists to discover list IDs."
+                "instructions": "Tools to read and modify the user's data on this Mac. Currently exposes Apple Reminders, Calendar, and Notes. Discover containers first (reminders_list_lists, calendar_list_calendars, notes_list_folders) before creating items, and pass identifiers from those calls back into create/update tools."
             ]
         case "ping":
             return [:]
@@ -193,6 +203,143 @@ actor MCPRequestHandler {
             }
             try await reminders.deleteReminder(id: id)
             return Self.toolResult(text: "Deleted reminder \(id).")
+
+        // MARK: Calendar
+
+        case "calendar_list_calendars":
+            let cals = try await calendar.listCalendars()
+            return Self.toolResult(json: cals)
+
+        case "calendar_search":
+            guard let startStr = arguments["start"] as? String, let start = parseDate(startStr) else {
+                throw JSONRPCError(code: -32602, message: "'start' is required (ISO-8601)")
+            }
+            guard let endStr = arguments["end"] as? String, let end = parseDate(endStr) else {
+                throw JSONRPCError(code: -32602, message: "'end' is required (ISO-8601)")
+            }
+            let filter = CalendarService.EventFilter(
+                start: start,
+                end: end,
+                calendarIDs: (arguments["calendarIds"] as? [String]).flatMap { $0.isEmpty ? nil : $0 },
+                query: arguments["query"] as? String,
+                limit: arguments["limit"] as? Int
+            )
+            let events = try await calendar.fetchEvents(filter: filter)
+            return Self.toolResult(json: events)
+
+        case "calendar_get":
+            guard let id = arguments["id"] as? String else {
+                throw JSONRPCError(code: -32602, message: "'id' is required")
+            }
+            let event = try await calendar.event(id: id)
+            return Self.toolResult(json: event)
+
+        case "calendar_create":
+            guard let title = arguments["title"] as? String else {
+                throw JSONRPCError(code: -32602, message: "'title' is required")
+            }
+            guard let startStr = arguments["start"] as? String, let start = parseDate(startStr) else {
+                throw JSONRPCError(code: -32602, message: "'start' is required (ISO-8601)")
+            }
+            guard let endStr = arguments["end"] as? String, let end = parseDate(endStr) else {
+                throw JSONRPCError(code: -32602, message: "'end' is required (ISO-8601)")
+            }
+            let input = CalendarService.CreateEventInput(
+                title: title,
+                notes: arguments["notes"] as? String,
+                location: arguments["location"] as? String,
+                url: (arguments["url"] as? String).flatMap(URL.init(string:)),
+                start: start,
+                end: end,
+                allDay: arguments["allDay"] as? Bool ?? false,
+                calendarID: arguments["calendarId"] as? String
+            )
+            let created = try await calendar.createEvent(input)
+            return Self.toolResult(json: created)
+
+        case "calendar_update":
+            guard let id = arguments["id"] as? String else {
+                throw JSONRPCError(code: -32602, message: "'id' is required")
+            }
+            var input = CalendarService.UpdateEventInput(id: id)
+            if let v = arguments["title"] as? String { input.title = v }
+            if arguments.keys.contains("notes") {
+                input.notes = .some(arguments["notes"] as? String)
+            }
+            if arguments.keys.contains("location") {
+                input.location = .some(arguments["location"] as? String)
+            }
+            if arguments.keys.contains("url") {
+                input.url = .some((arguments["url"] as? String).flatMap(URL.init(string:)))
+            }
+            if let s = arguments["start"] as? String { input.start = parseDate(s) }
+            if let s = arguments["end"] as? String { input.end = parseDate(s) }
+            if let v = arguments["allDay"] as? Bool { input.allDay = v }
+            if let v = arguments["calendarId"] as? String { input.calendarID = v }
+            let updated = try await calendar.updateEvent(input)
+            return Self.toolResult(json: updated)
+
+        case "calendar_delete":
+            guard let id = arguments["id"] as? String else {
+                throw JSONRPCError(code: -32602, message: "'id' is required")
+            }
+            try await calendar.deleteEvent(id: id)
+            return Self.toolResult(text: "Deleted event \(id).")
+
+        // MARK: Notes
+
+        case "notes_list_folders":
+            let structure = try await notes.listAccountsAndFolders()
+            return Self.toolResult(json: structure)
+
+        case "notes_search":
+            let q = NotesService.ListNotesQuery(
+                folderID: arguments["folderId"] as? String,
+                accountName: arguments["accountName"] as? String,
+                query: arguments["query"] as? String,
+                limit: arguments["limit"] as? Int ?? 50,
+                includeBody: arguments["includeBody"] as? Bool ?? false
+            )
+            let results = try await notes.listNotes(q)
+            return Self.toolResult(json: results)
+
+        case "notes_get":
+            guard let id = arguments["id"] as? String else {
+                throw JSONRPCError(code: -32602, message: "'id' is required")
+            }
+            let note = try await notes.getNote(id: id)
+            return Self.toolResult(json: note)
+
+        case "notes_create":
+            guard let title = arguments["title"] as? String else {
+                throw JSONRPCError(code: -32602, message: "'title' is required")
+            }
+            let input = NotesService.CreateNoteInput(
+                title: title,
+                body: arguments["body"] as? String ?? "",
+                folderID: arguments["folderId"] as? String,
+                folderName: arguments["folderName"] as? String,
+                accountName: arguments["accountName"] as? String
+            )
+            let created = try await notes.createNote(input)
+            return Self.toolResult(json: created)
+
+        case "notes_update":
+            guard let id = arguments["id"] as? String else {
+                throw JSONRPCError(code: -32602, message: "'id' is required")
+            }
+            var input = NotesService.UpdateNoteInput(id: id)
+            if let v = arguments["title"] as? String { input.title = v }
+            if let v = arguments["body"] as? String { input.body = v }
+            let updated = try await notes.updateNote(input)
+            return Self.toolResult(json: updated)
+
+        case "notes_delete":
+            guard let id = arguments["id"] as? String else {
+                throw JSONRPCError(code: -32602, message: "'id' is required")
+            }
+            try await notes.deleteNote(id: id)
+            return Self.toolResult(text: "Deleted note \(id).")
 
         default:
             throw JSONRPCError(code: -32601, message: "Unknown tool: \(name)")
