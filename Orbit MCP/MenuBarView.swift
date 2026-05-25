@@ -77,6 +77,7 @@ struct MenuBarView: View {
                 enabled: $state.timeEnabled,
                 hint: "Helper tools so the model knows today's date, can convert timezones, add durations, and format dates."
             )
+            destructiveRow
             if case .failed(let message) = state.serverStatus {
                 Text(message)
                     .font(.caption)
@@ -137,6 +138,23 @@ struct MenuBarView: View {
                 .controlSize(.mini)
                 .labelsHidden()
                 .help("Expose \(label) tools to MCP clients")
+        }
+    }
+
+    private var destructiveRow: some View {
+        HStack(spacing: 6) {
+            Image(systemName: state.allowDestructive ? "exclamationmark.shield.fill" : "lock.shield.fill")
+                .foregroundStyle(state.allowDestructive ? Color.orange : Color.green)
+            Text(state.allowDestructive ? "Destructive actions: allowed" : "Destructive actions: blocked")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HintButton(text: "When off, tools that modify or delete existing items (update/delete across reminders, calendar, and notes) are hidden and rejected. Creating new items and completing reminders stay available.")
+            Spacer()
+            Toggle("", isOn: $state.allowDestructive)
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .labelsHidden()
+                .help("Allow tools that update or delete existing items")
         }
     }
 

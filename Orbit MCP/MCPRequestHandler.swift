@@ -111,9 +111,17 @@ actor MCPRequestHandler {
         case "notifications/initialized", "notifications/cancelled":
             return [:]
         case "tools/list":
-            let enabled = MCPTools.descriptors.filter { descriptor in
-                guard let name = descriptor["name"] as? String else { return true }
-                return serviceFlags.isToolEnabled(name)
+            let enabled = MCPTools.descriptors.compactMap { descriptor -> [String: Any]? in
+                guard let name = descriptor["name"] as? String else { return descriptor }
+                guard serviceFlags.isToolEnabled(name) else { return nil }
+                guard ServiceFlags.destructiveToolNames.contains(name) else { return descriptor }
+                // Tag destructive tools with the standard MCP annotation so
+                // clients can render warnings/confirmations.
+                var annotated = descriptor
+                var annotations = (annotated["annotations"] as? [String: Any]) ?? [:]
+                annotations["destructiveHint"] = true
+                annotated["annotations"] = annotations
+                return annotated
             }
             return ["tools": enabled]
         case "tools/call":
@@ -121,7 +129,13 @@ actor MCPRequestHandler {
                 throw JSONRPCError(code: -32602, message: "Missing tool name")
             }
             if !serviceFlags.isToolEnabled(name) {
-                throw JSONRPCError(code: -32601, message: "Tool '\(name)' is disabled in Orbit MCP settings.")
+                let reason: String
+                if !serviceFlags.allowDestructive, ServiceFlags.destructiveToolNames.contains(name) {
+                    reason = "Destructive actions are disabled in Orbit MCP settings."
+                } else {
+                    reason = "Tool '\(name)' is disabled in Orbit MCP settings."
+                }
+                throw JSONRPCError(code: -32601, message: reason)
             }
             let args = params["arguments"] as? [String: Any] ?? [:]
             return try await callTool(name: name, arguments: args)

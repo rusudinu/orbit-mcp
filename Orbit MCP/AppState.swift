@@ -67,11 +67,21 @@ final class AppState: ObservableObject {
             syncServiceFlags()
         }
     }
+    /// When false, tools that mutate or delete existing user data are hidden
+    /// from MCP clients and rejected if called. Additive operations (creating
+    /// new items) and reversible toggles (completing reminders) remain available.
+    @Published var allowDestructive: Bool {
+        didSet {
+            UserDefaults.standard.set(allowDestructive, forKey: Self.allowDestructiveKey)
+            syncServiceFlags()
+        }
+    }
 
     private static let remindersEnabledKey = "orbit.mcp.enable.reminders"
     private static let calendarEnabledKey = "orbit.mcp.enable.calendar"
     private static let notesEnabledKey = "orbit.mcp.enable.notes"
     private static let timeEnabledKey = "orbit.mcp.enable.time"
+    private static let allowDestructiveKey = "orbit.mcp.allowDestructive"
 
     let reminders = RemindersService()
     let calendar = CalendarService()
@@ -87,17 +97,20 @@ final class AppState: ObservableObject {
             Self.remindersEnabledKey: true,
             Self.calendarEnabledKey: true,
             Self.notesEnabledKey: true,
-            Self.timeEnabledKey: true
+            Self.timeEnabledKey: true,
+            Self.allowDestructiveKey: true
         ])
         self.remindersEnabled = defaults.bool(forKey: Self.remindersEnabledKey)
         self.calendarEnabled = defaults.bool(forKey: Self.calendarEnabledKey)
         self.notesEnabled = defaults.bool(forKey: Self.notesEnabledKey)
         self.timeEnabled = defaults.bool(forKey: Self.timeEnabledKey)
+        self.allowDestructive = defaults.bool(forKey: Self.allowDestructiveKey)
         self.serviceFlags.update(
             reminders: remindersEnabled,
             calendar: calendarEnabled,
             notes: notesEnabled,
-            time: timeEnabled
+            time: timeEnabled,
+            allowDestructive: allowDestructive
         )
         Task { @MainActor in
             await self.bootstrap()
@@ -109,7 +122,8 @@ final class AppState: ObservableObject {
             reminders: remindersEnabled,
             calendar: calendarEnabled,
             notes: notesEnabled,
-            time: timeEnabled
+            time: timeEnabled,
+            allowDestructive: allowDestructive
         )
     }
 
