@@ -1,0 +1,38 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode
+DerivedData/
+build/
+*.xcuserstate
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+
+# JetBrains IDEs
+.idea/
+
+# VS Code
+.vscode/
+
+# Local environment and scratch files
+.env
+.env.*
+*.local
+*.log
+*.tmp
+.test_*.scpt
+
+# Dependency folders for local experiments
+node_modules/
+vendor/
