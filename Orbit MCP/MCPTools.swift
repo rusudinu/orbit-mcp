@@ -152,6 +152,72 @@ nonisolated enum MCPTools {
         "additionalProperties": true
     ]
 
+    private static let timeInfoSchema: [String: Any] = [
+        "type": "object",
+        "required": [
+            "iso8601", "date", "time", "timezone", "timezoneOffsetSeconds",
+            "timezoneOffsetString", "dayOfWeek", "dayOfWeekNumber",
+            "dayOfMonth", "dayOfYear", "weekOfYear", "month", "monthName",
+            "year", "unixSeconds", "unixMilliseconds", "isDST"
+        ],
+        "properties": [
+            "iso8601": ["type": "string", "format": "date-time"],
+            "date": ["type": "string"],
+            "time": ["type": "string"],
+            "timezone": ["type": "string"],
+            "timezoneAbbreviation": ["type": ["string", "null"]],
+            "timezoneOffsetSeconds": ["type": "integer"],
+            "timezoneOffsetString": ["type": "string"],
+            "dayOfWeek": ["type": "string"],
+            "dayOfWeekNumber": ["type": "integer", "description": "1 = Monday … 7 = Sunday (ISO-8601)."],
+            "dayOfMonth": ["type": "integer"],
+            "dayOfYear": ["type": "integer"],
+            "weekOfYear": ["type": "integer"],
+            "month": ["type": "integer"],
+            "monthName": ["type": "string"],
+            "year": ["type": "integer"],
+            "unixSeconds": ["type": "integer"],
+            "unixMilliseconds": ["type": "integer"],
+            "isDST": ["type": "boolean"]
+        ],
+        "additionalProperties": true
+    ]
+
+    private static let timeDiffSchema: [String: Any] = [
+        "type": "object",
+        "required": [
+            "totalSeconds", "totalMinutes", "totalHours", "totalDays",
+            "years", "months", "days", "hours", "minutes", "seconds",
+            "humanized", "direction"
+        ],
+        "properties": [
+            "totalSeconds": ["type": "number"],
+            "totalMinutes": ["type": "number"],
+            "totalHours": ["type": "number"],
+            "totalDays": ["type": "number"],
+            "years": ["type": "integer"],
+            "months": ["type": "integer"],
+            "days": ["type": "integer"],
+            "hours": ["type": "integer"],
+            "minutes": ["type": "integer"],
+            "seconds": ["type": "integer"],
+            "humanized": ["type": "string"],
+            "direction": ["type": "string", "enum": ["future", "past", "now"]]
+        ],
+        "additionalProperties": false
+    ]
+
+    private static let formattedTimeSchema: [String: Any] = [
+        "type": "object",
+        "required": ["formatted", "timezone", "locale"],
+        "properties": [
+            "formatted": ["type": "string"],
+            "timezone": ["type": "string"],
+            "locale": ["type": "string"]
+        ],
+        "additionalProperties": false
+    ]
+
     private static func listOf(_ schema: [String: Any]) -> [String: Any] {
         return [
             "type": "object",
@@ -515,6 +581,133 @@ nonisolated enum MCPTools {
                 "additionalProperties": false
             ],
             "outputSchema": messageSchema
+        ],
+
+        // MARK: Time
+
+        [
+            "name": "time_now",
+            "title": "Get Current Date and Time",
+            "description": "Return the current date and time on this Mac, including weekday, ISO-8601 timestamp with timezone offset, and Unix epoch. Use this whenever you need to know what 'today' or 'now' is. Pass `timezone` to get the result in a specific IANA timezone.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "timezone": [
+                        "type": "string",
+                        "description": "IANA timezone identifier (e.g. 'America/New_York', 'Europe/Berlin', 'UTC'). Defaults to the system timezone."
+                    ]
+                ],
+                "additionalProperties": false
+            ],
+            "outputSchema": timeInfoSchema
+        ],
+        [
+            "name": "time_convert",
+            "title": "Convert Between Timezones",
+            "description": "Convert a timestamp into another timezone. The input may include an explicit offset (e.g. 'Z' or '+02:00') or use `fromTimezone` for inputs without an offset.",
+            "inputSchema": [
+                "type": "object",
+                "required": ["time", "toTimezone"],
+                "properties": [
+                    "time": [
+                        "type": "string",
+                        "description": "ISO-8601 timestamp to convert. May be 'YYYY-MM-DD', 'YYYY-MM-DDTHH:mm:ss', or include an offset."
+                    ],
+                    "toTimezone": [
+                        "type": "string",
+                        "description": "Target IANA timezone identifier (e.g. 'America/Los_Angeles')."
+                    ],
+                    "fromTimezone": [
+                        "type": "string",
+                        "description": "Source IANA timezone, used only when `time` has no explicit offset."
+                    ]
+                ],
+                "additionalProperties": false
+            ],
+            "outputSchema": timeInfoSchema
+        ],
+        [
+            "name": "time_add",
+            "title": "Add Duration to a Time",
+            "description": "Add (or subtract, with negative values) a calendar-aware duration to a timestamp. Useful for 'tomorrow at 9am', 'in 3 weeks', 'two months ago', etc.",
+            "inputSchema": [
+                "type": "object",
+                "required": ["time"],
+                "properties": [
+                    "time": [
+                        "type": "string",
+                        "description": "ISO-8601 starting timestamp. Use `time_now` first if you want to start from now."
+                    ],
+                    "years": ["type": "integer"],
+                    "months": ["type": "integer"],
+                    "weeks": ["type": "integer"],
+                    "days": ["type": "integer"],
+                    "hours": ["type": "integer"],
+                    "minutes": ["type": "integer"],
+                    "seconds": ["type": "integer"],
+                    "timezone": [
+                        "type": "string",
+                        "description": "IANA timezone for calendar arithmetic (DST-aware). Defaults to the system timezone."
+                    ]
+                ],
+                "additionalProperties": false
+            ],
+            "outputSchema": timeInfoSchema
+        ],
+        [
+            "name": "time_diff",
+            "title": "Compute Difference Between Two Times",
+            "description": "Compute the difference between two timestamps, broken down into years/months/days/hours/minutes/seconds plus totals and a humanized string. `direction` indicates whether `to` is in the future or past relative to `from`.",
+            "inputSchema": [
+                "type": "object",
+                "required": ["from", "to"],
+                "properties": [
+                    "from": ["type": "string", "description": "ISO-8601 start timestamp."],
+                    "to": ["type": "string", "description": "ISO-8601 end timestamp."],
+                    "timezone": [
+                        "type": "string",
+                        "description": "IANA timezone used for calendar component math. Defaults to the system timezone."
+                    ]
+                ],
+                "additionalProperties": false
+            ],
+            "outputSchema": timeDiffSchema
+        ],
+        [
+            "name": "time_format",
+            "title": "Format a Time for Display",
+            "description": "Render a timestamp using either named styles (none/short/medium/long/full) or a custom DateFormatter pattern (e.g. \"EEEE, MMMM d 'at' h:mm a\").",
+            "inputSchema": [
+                "type": "object",
+                "required": ["time"],
+                "properties": [
+                    "time": ["type": "string", "description": "ISO-8601 timestamp."],
+                    "dateStyle": [
+                        "type": "string",
+                        "enum": ["none", "short", "medium", "long", "full"],
+                        "description": "Named style for the date component. Ignored if `pattern` is set."
+                    ],
+                    "timeStyle": [
+                        "type": "string",
+                        "enum": ["none", "short", "medium", "long", "full"],
+                        "description": "Named style for the time component. Ignored if `pattern` is set."
+                    ],
+                    "pattern": [
+                        "type": "string",
+                        "description": "Custom DateFormatter pattern. When provided, overrides dateStyle/timeStyle."
+                    ],
+                    "locale": [
+                        "type": "string",
+                        "description": "BCP-47/POSIX locale identifier (e.g. 'en_US', 'fr_FR'). Defaults to the system locale."
+                    ],
+                    "timezone": [
+                        "type": "string",
+                        "description": "IANA timezone identifier. Defaults to the system timezone."
+                    ]
+                ],
+                "additionalProperties": false
+            ],
+            "outputSchema": formattedTimeSchema
         ]
     ]
 }

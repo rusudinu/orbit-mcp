@@ -56,18 +56,26 @@ struct MenuBarView: View {
             accessRow(
                 label: "Reminders",
                 status: state.remindersAccess,
+                enabled: $state.remindersEnabled,
                 grant: { Task { await state.requestRemindersAccess() } }
             )
             accessRow(
                 label: "Calendar",
                 status: state.calendarAccess,
+                enabled: $state.calendarEnabled,
                 grant: { Task { await state.requestCalendarAccess() } }
             )
             accessRow(
                 label: "Notes",
                 status: .granted, // managed by macOS Automation prompt on first call
+                enabled: $state.notesEnabled,
                 hint: "Notes uses macOS Automation. The first notes_* call will prompt for permission.",
                 grant: nil
+            )
+            toolGroupRow(
+                label: "Date & Time",
+                enabled: $state.timeEnabled,
+                hint: "Helper tools so the model knows today's date, can convert timezones, add durations, and format dates."
             )
             if case .failed(let message) = state.serverStatus {
                 Text(message)
@@ -80,13 +88,15 @@ struct MenuBarView: View {
     private func accessRow(
         label: String,
         status: AppState.AccessStatus,
+        enabled: Binding<Bool>,
         hint: String? = nil,
         grant: (() -> Void)?
     ) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon(for: status))
-                .foregroundStyle(tint(for: status))
-            Text("\(label): \(text(for: status))")
+        let isOn = enabled.wrappedValue
+        return HStack(spacing: 6) {
+            Image(systemName: isOn ? icon(for: status) : "circle.slash")
+                .foregroundStyle(isOn ? tint(for: status) : Color.secondary)
+            Text("\(label): \(isOn ? text(for: status) : "off")")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if let hint {
@@ -96,11 +106,43 @@ struct MenuBarView: View {
                     .help(hint)
             }
             Spacer()
-            if status != .granted, let grant {
+            if isOn, status != .granted, let grant {
                 Button("Grant") { grant() }
                     .buttonStyle(.borderless)
                     .font(.caption)
             }
+            Toggle("", isOn: enabled)
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .labelsHidden()
+                .help("Expose \(label) tools to MCP clients")
+        }
+    }
+
+    private func toolGroupRow(
+        label: String,
+        enabled: Binding<Bool>,
+        hint: String? = nil
+    ) -> some View {
+        let isOn = enabled.wrappedValue
+        return HStack(spacing: 6) {
+            Image(systemName: isOn ? "clock.fill" : "circle.slash")
+                .foregroundStyle(isOn ? Color.green : Color.secondary)
+            Text("\(label): \(isOn ? "on" : "off")")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let hint {
+                Image(systemName: "info.circle")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .help(hint)
+            }
+            Spacer()
+            Toggle("", isOn: enabled)
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .labelsHidden()
+                .help("Expose \(label) tools to MCP clients")
         }
     }
 

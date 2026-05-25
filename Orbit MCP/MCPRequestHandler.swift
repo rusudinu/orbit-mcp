@@ -13,14 +13,16 @@ actor MCPRequestHandler {
     private let reminders: RemindersService
     private let calendar: CalendarService
     private let notes: NotesService
+    private let serviceFlags: ServiceFlags
     private let serverName = "orbit-mcp"
     private let serverVersion = "0.2.0"
     private let protocolVersion = "2025-06-18"
 
-    init(reminders: RemindersService, calendar: CalendarService, notes: NotesService) {
+    init(reminders: RemindersService, calendar: CalendarService, notes: NotesService, serviceFlags: ServiceFlags) {
         self.reminders = reminders
         self.calendar = calendar
         self.notes = notes
+        self.serviceFlags = serviceFlags
     }
 
     /// Returns nil for notifications (no response should be sent).
@@ -79,6 +81,9 @@ actor MCPRequestHandler {
         } catch let err as NotesError {
             if isNotification { return nil }
             return Self.errorObject(id: id, code: err.mcpCode, message: err.errorDescription ?? "Notes error")
+        } catch let err as TimeError {
+            if isNotification { return nil }
+            return Self.errorObject(id: id, code: err.mcpCode, message: err.errorDescription ?? "Time error")
         } catch {
             if isNotification { return nil }
             return Self.errorObject(id: id, code: -32603, message: error.localizedDescription)
@@ -106,10 +111,17 @@ actor MCPRequestHandler {
         case "notifications/initialized", "notifications/cancelled":
             return [:]
         case "tools/list":
-            return ["tools": MCPTools.descriptors]
+            let enabled = MCPTools.descriptors.filter { descriptor in
+                guard let name = descriptor["name"] as? String else { return true }
+                return serviceFlags.isToolEnabled(name)
+            }
+            return ["tools": enabled]
         case "tools/call":
             guard let name = params["name"] as? String else {
                 throw JSONRPCError(code: -32602, message: "Missing tool name")
+            }
+            if !serviceFlags.isToolEnabled(name) {
+                throw JSONRPCError(code: -32601, message: "Tool '\(name)' is disabled in Orbit MCP settings.")
             }
             let args = params["arguments"] as? [String: Any] ?? [:]
             return try await callTool(name: name, arguments: args)
@@ -340,6 +352,71 @@ actor MCPRequestHandler {
             }
             try await notes.deleteNote(id: id)
             return Self.toolResult(text: "Deleted note \(id).")
+
+        // MARK: Time
+
+        case "time_now":
+            let info = try TimeService.now(timezoneIdentifier: arguments["timezone"] as? String)
+            return Self.toolResult(json: info)
+
+        case "time_convert":
+            guard let time = arguments["time"] as? String else {
+                throw JSONRPCError(code: -32602, message: "'time' is required")
+            }
+            guard let target = arguments["toTimezone"] as? String else {
+                throw JSONRPCError(code: -32602, message: "'toTimezone' is required")
+            }
+            let info = try TimeService.convert(
+                time: time,
+                to: target,
+                from: arguments["fromTimezone"] as? String
+            )
+            return Self.toolResult(json: info)
+
+        case "time_add":
+            guard let time = arguments["time"] as? String else {
+                throw JSONRPCError(code: -32602, message: "'time' is required")
+            }
+            let info = try TimeService.add(
+                time: time,
+                years: arguments["years"] as? Int ?? 0,
+                months: arguments["months"] as? Int ?? 0,
+                weeks: arguments["weeks"] as? Int ?? 0,
+                days: arguments["days"] as? Int ?? 0,
+                hours: arguments["hours"] as? Int ?? 0,
+                minutes: arguments["minutes"] as? Int ?? 0,
+                seconds: arguments["seconds"] as? Int ?? 0,
+                timezoneIdentifier: arguments["timezone"] as? String
+            )
+            return Self.toolResult(json: info)
+
+        case "time_diff":
+            guard let from = arguments["from"] as? String else {
+                throw JSONRPCError(code: -32602, message: "'from' is required")
+            }
+            guard let to = arguments["to"] as? String else {
+                throw JSONRPCError(code: -32602, message: "'to' is required")
+            }
+            let diff = try TimeService.diff(
+                from: from,
+                to: to,
+                timezoneIdentifier: arguments["timezone"] as? String
+            )
+            return Self.toolResult(json: diff)
+
+        case "time_format":
+            guard let time = arguments["time"] as? String else {
+                throw JSONRPCError(code: -32602, message: "'time' is required")
+            }
+            let formatted = try TimeService.format(
+                time: time,
+                dateStyle: arguments["dateStyle"] as? String,
+                timeStyle: arguments["timeStyle"] as? String,
+                pattern: arguments["pattern"] as? String,
+                localeIdentifier: arguments["locale"] as? String,
+                timezoneIdentifier: arguments["timezone"] as? String
+            )
+            return Self.toolResult(json: formatted)
 
         default:
             throw JSONRPCError(code: -32601, message: "Unknown tool: \(name)")

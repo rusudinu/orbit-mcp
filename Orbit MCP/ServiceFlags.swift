@@ -14,11 +14,13 @@ nonisolated final class ServiceFlags: @unchecked Sendable {
     private var _reminders: Bool
     private var _calendar: Bool
     private var _notes: Bool
+    private var _time: Bool
 
-    init(reminders: Bool = true, calendar: Bool = true, notes: Bool = true) {
+    init(reminders: Bool = true, calendar: Bool = true, notes: Bool = true, time: Bool = true) {
         self._reminders = reminders
         self._calendar = calendar
         self._notes = notes
+        self._time = time
     }
 
     var reminders: Bool {
@@ -36,11 +38,17 @@ nonisolated final class ServiceFlags: @unchecked Sendable {
         return _notes
     }
 
-    func update(reminders: Bool, calendar: Bool, notes: Bool) {
+    var time: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return _time
+    }
+
+    func update(reminders: Bool, calendar: Bool, notes: Bool, time: Bool) {
         lock.lock()
         _reminders = reminders
         _calendar = calendar
         _notes = notes
+        _time = time
         lock.unlock()
     }
 
@@ -50,6 +58,7 @@ nonisolated final class ServiceFlags: @unchecked Sendable {
         if toolName.hasPrefix("reminders_") { return reminders }
         if toolName.hasPrefix("calendar_") { return calendar }
         if toolName.hasPrefix("notes_") { return notes }
+        if toolName.hasPrefix("time_") { return time }
         return true
     }
 }

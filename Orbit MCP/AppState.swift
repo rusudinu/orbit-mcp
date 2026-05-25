@@ -61,10 +61,17 @@ final class AppState: ObservableObject {
             syncServiceFlags()
         }
     }
+    @Published var timeEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(timeEnabled, forKey: Self.timeEnabledKey)
+            syncServiceFlags()
+        }
+    }
 
     private static let remindersEnabledKey = "orbit.mcp.enable.reminders"
     private static let calendarEnabledKey = "orbit.mcp.enable.calendar"
     private static let notesEnabledKey = "orbit.mcp.enable.notes"
+    private static let timeEnabledKey = "orbit.mcp.enable.time"
 
     let reminders = RemindersService()
     let calendar = CalendarService()
@@ -79,15 +86,18 @@ final class AppState: ObservableObject {
         defaults.register(defaults: [
             Self.remindersEnabledKey: true,
             Self.calendarEnabledKey: true,
-            Self.notesEnabledKey: true
+            Self.notesEnabledKey: true,
+            Self.timeEnabledKey: true
         ])
         self.remindersEnabled = defaults.bool(forKey: Self.remindersEnabledKey)
         self.calendarEnabled = defaults.bool(forKey: Self.calendarEnabledKey)
         self.notesEnabled = defaults.bool(forKey: Self.notesEnabledKey)
+        self.timeEnabled = defaults.bool(forKey: Self.timeEnabledKey)
         self.serviceFlags.update(
             reminders: remindersEnabled,
             calendar: calendarEnabled,
-            notes: notesEnabled
+            notes: notesEnabled,
+            time: timeEnabled
         )
         Task { @MainActor in
             await self.bootstrap()
@@ -98,7 +108,8 @@ final class AppState: ObservableObject {
         serviceFlags.update(
             reminders: remindersEnabled,
             calendar: calendarEnabled,
-            notes: notesEnabled
+            notes: notesEnabled,
+            time: timeEnabled
         )
     }
 
