@@ -26,6 +26,7 @@ final class AppState: ObservableObject {
         case unknown
         case requesting
         case granted
+        case writeOnly
         case denied
         case restricted
     }
@@ -176,7 +177,8 @@ final class AppState: ObservableObject {
         case .notDetermined: return .unknown
         case .denied: return .denied
         case .restricted: return .restricted
-        case .fullAccess, .authorized, .writeOnly: return .granted
+        case .writeOnly: return .writeOnly
+        case .fullAccess, .authorized: return .granted
         @unknown default: return .unknown
         }
     }

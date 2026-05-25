@@ -15,28 +15,58 @@ actor NotesService {
     // MARK: Public API
 
     func listAccountsAndFolders() async throws -> NotesStructure {
+        // Emit JSON from AppleScript so titles, account names, and folder names
+        // containing tabs, newlines, or our custom delimiters cannot corrupt
+        // the parse on the Swift side.
         let script = """
+        on jsonEscape(s)
+            set txt to s as text
+            set txt to my replaceText(txt, "\\\\", "\\\\\\\\")
+            set txt to my replaceText(txt, "\\"", "\\\\\\"")
+            set txt to my replaceText(txt, tab, "\\\\t")
+            set txt to my replaceText(txt, return & linefeed, "\\\\n")
+            set txt to my replaceText(txt, linefeed, "\\\\n")
+            set txt to my replaceText(txt, return, "\\\\n")
+            return txt
+        end jsonEscape
+        on replaceText(theText, oldText, newText)
+            set AppleScript's text item delimiters to oldText
+            set parts to text items of theText
+            set AppleScript's text item delimiters to newText
+            set theText to parts as text
+            set AppleScript's text item delimiters to ""
+            return theText
+        end replaceText
         tell application "Notes"
-            set out to ""
+            set out to "["
+            set firstFolder to true
             repeat with a in accounts
-                set accName to (name of a)
+                set accName to (name of a as text)
                 repeat with f in folders of a
                     set fid to (id of f as text)
                     set fname to (name of f as text)
-                    set out to out & accName & tab & fid & tab & fname & linefeed
+                    if firstFolder then
+                        set firstFolder to false
+                    else
+                        set out to out & ","
+                    end if
+                    set out to out & "{\\"account\\":\\"" & my jsonEscape(accName) & "\\",\\"id\\":\\"" & my jsonEscape(fid) & "\\",\\"name\\":\\"" & my jsonEscape(fname) & "\\"}"
                 end repeat
             end repeat
+            set out to out & "]"
             return out
         end tell
         """
         let output = try await runScript(script)
+        guard let data = output.data(using: .utf8),
+              let raw = try? JSONSerialization.jsonObject(with: data) as? [[String: String]] else {
+            throw NotesError.scriptError("Could not parse Notes folder list response.")
+        }
         var accounts: [String: NotesAccount] = [:]
-        for line in output.split(separator: "\n") {
-            let parts = line.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false)
-            guard parts.count == 3 else { continue }
-            let accountName = String(parts[0])
-            let folderID = String(parts[1])
-            let folderName = String(parts[2])
+        for entry in raw {
+            let accountName = entry["account"] ?? ""
+            let folderID = entry["id"] ?? ""
+            let folderName = entry["name"] ?? ""
             var account = accounts[accountName] ?? NotesAccount(name: accountName, folders: [])
             account.folders.append(NotesFolder(id: folderID, name: folderName, accountName: accountName))
             accounts[accountName] = account
@@ -68,11 +98,9 @@ actor NotesService {
             queryClause = ""
         }
 
-        // Use ASCII multi-char delimiters that AppleScript handles cleanly. These can never
-        // appear in normal note text, so collisions are vanishingly unlikely.
-        let lineDelim = "<<<ORBIT_REC>>>"
-        let nlDelim = "<<<ORBIT_NL>>>"
-
+        // Emit a JSON array. Each field is escaped so titles, folder names,
+        // account names, and bodies containing tabs, quotes, backslashes, or
+        // newlines all round-trip without corrupting the parse.
         let script = """
         on safeText(x)
             try
@@ -81,13 +109,16 @@ actor NotesService {
                 return ""
             end try
         end safeText
-        on encodeBody(b)
-            set b to my replaceText(b, tab, "    ")
-            set b to my replaceText(b, return & linefeed, "\(nlDelim)")
-            set b to my replaceText(b, linefeed, "\(nlDelim)")
-            set b to my replaceText(b, return, "\(nlDelim)")
-            return b
-        end encodeBody
+        on jsonEscape(s)
+            set txt to s as text
+            set txt to my replaceText(txt, "\\\\", "\\\\\\\\")
+            set txt to my replaceText(txt, "\\"", "\\\\\\"")
+            set txt to my replaceText(txt, tab, "\\\\t")
+            set txt to my replaceText(txt, return & linefeed, "\\\\n")
+            set txt to my replaceText(txt, linefeed, "\\\\n")
+            set txt to my replaceText(txt, return, "\\\\n")
+            return txt
+        end jsonEscape
         on replaceText(theText, oldText, newText)
             set AppleScript's text item delimiters to oldText
             set parts to text items of theText
@@ -98,7 +129,8 @@ actor NotesService {
         end replaceText
 
         tell application "Notes"
-            set out to ""
+            set out to "["
+            set firstNote to true
             set count_ to 0
             \(scope)
             repeat with n in theNotes
@@ -126,32 +158,38 @@ actor NotesService {
                         set accName to (name of (account of (container of n)) as text)
                     end try
                     if \(includeBodyFlag) then
-                        set bodyOut to my encodeBody(theBody)
+                        set bodyOut to my jsonEscape(theBody)
                     else
                         set bodyOut to ""
                     end if
-                    set out to out & noteID & tab & theTitle & tab & folderName & tab & accName & tab & createdAt & tab & modifiedAt & tab & bodyOut & "\(lineDelim)"
+                    if firstNote then
+                        set firstNote to false
+                    else
+                        set out to out & ","
+                    end if
+                    set out to out & "{\\"id\\":\\"" & my jsonEscape(noteID) & "\\",\\"title\\":\\"" & my jsonEscape(theTitle) & "\\",\\"folderName\\":\\"" & my jsonEscape(folderName) & "\\",\\"accountName\\":\\"" & my jsonEscape(accName) & "\\",\\"createdAt\\":\\"" & my jsonEscape(createdAt) & "\\",\\"modifiedAt\\":\\"" & my jsonEscape(modifiedAt) & "\\",\\"body\\":\\"" & bodyOut & "\\"}"
                     set count_ to count_ + 1
                 end if
             end repeat
+            set out to out & "]"
             return out
         end tell
         """
         let output = try await runScript(script)
+        guard let data = output.data(using: .utf8),
+              let raw = try? JSONSerialization.jsonObject(with: data) as? [[String: String]] else {
+            throw NotesError.scriptError("Could not parse Notes search response.")
+        }
         var notes: [NoteSummary] = []
-        for raw in output.components(separatedBy: lineDelim) {
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty { continue }
-            let parts = trimmed.components(separatedBy: "\t")
-            guard parts.count >= 7 else { continue }
-            let body = parts[6].replacingOccurrences(of: nlDelim, with: "\n")
+        for entry in raw {
+            let body = entry["body"] ?? ""
             notes.append(NoteSummary(
-                id: parts[0],
-                title: parts[1],
-                folderName: parts[2],
-                accountName: parts[3],
-                creationDate: parseISODate(parts[4]),
-                modificationDate: parseISODate(parts[5]),
+                id: entry["id"] ?? "",
+                title: entry["title"] ?? "",
+                folderName: entry["folderName"] ?? "",
+                accountName: entry["accountName"] ?? "",
+                creationDate: parseISODate(entry["createdAt"] ?? ""),
+                modificationDate: parseISODate(entry["modifiedAt"] ?? ""),
                 body: q.includeBody ? body : nil
             ))
         }
@@ -160,7 +198,6 @@ actor NotesService {
 
     func getNote(id: String) async throws -> Note {
         let idEsc = escapeForAS(id)
-        let recordSep = "<<<ORBIT_HTML>>>"
         let script = """
         on safeText(x)
             try
@@ -169,6 +206,24 @@ actor NotesService {
                 return ""
             end try
         end safeText
+        on jsonEscape(s)
+            set txt to s as text
+            set txt to my replaceText(txt, "\\\\", "\\\\\\\\")
+            set txt to my replaceText(txt, "\\"", "\\\\\\"")
+            set txt to my replaceText(txt, tab, "\\\\t")
+            set txt to my replaceText(txt, return & linefeed, "\\\\n")
+            set txt to my replaceText(txt, linefeed, "\\\\n")
+            set txt to my replaceText(txt, return, "\\\\n")
+            return txt
+        end jsonEscape
+        on replaceText(theText, oldText, newText)
+            set AppleScript's text item delimiters to oldText
+            set parts to text items of theText
+            set AppleScript's text item delimiters to newText
+            set theText to parts as text
+            set AppleScript's text item delimiters to ""
+            return theText
+        end replaceText
         tell application "Notes"
             try
                 set n to note id "\(idEsc)"
@@ -194,29 +249,26 @@ actor NotesService {
             try
                 set accName to (name of (account of (container of n)) as text)
             end try
-            return theTitle & tab & folderName & tab & accName & tab & createdAt & tab & modifiedAt & tab & thePlain & "\(recordSep)" & theBody
+            return "{\\"title\\":\\"" & my jsonEscape(theTitle) & "\\",\\"folderName\\":\\"" & my jsonEscape(folderName) & "\\",\\"accountName\\":\\"" & my jsonEscape(accName) & "\\",\\"createdAt\\":\\"" & my jsonEscape(createdAt) & "\\",\\"modifiedAt\\":\\"" & my jsonEscape(modifiedAt) & "\\",\\"plain\\":\\"" & my jsonEscape(thePlain) & "\\",\\"html\\":\\"" & my jsonEscape(theBody) & "\\"}"
         end tell
         """
         let output = try await runScript(script)
         if output.trimmingCharacters(in: .whitespacesAndNewlines) == "__NOT_FOUND__" {
             throw NotesError.notFound("No note with identifier '\(id)'.")
         }
-        let split = output.components(separatedBy: recordSep)
-        let head = split.first ?? ""
-        let html = split.count > 1 ? split.dropFirst().joined(separator: recordSep) : ""
-        let parts = head.components(separatedBy: "\t")
-        guard parts.count >= 6 else {
+        guard let data = output.data(using: .utf8),
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
             throw NotesError.scriptError("Could not parse note response.")
         }
         return Note(
             id: id,
-            title: parts[0],
-            folderName: parts[1],
-            accountName: parts[2],
-            creationDate: parseISODate(parts[3]),
-            modificationDate: parseISODate(parts[4]),
-            plainBody: parts[5],
-            htmlBody: html
+            title: dict["title"] ?? "",
+            folderName: dict["folderName"] ?? "",
+            accountName: dict["accountName"] ?? "",
+            creationDate: parseISODate(dict["createdAt"] ?? ""),
+            modificationDate: parseISODate(dict["modifiedAt"] ?? ""),
+            plainBody: dict["plain"] ?? "",
+            htmlBody: dict["html"] ?? ""
         )
     }
 
@@ -232,9 +284,9 @@ actor NotesService {
         guard !input.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw NotesError.invalidInput("Note title is required.")
         }
-        let titleEsc = escapeForAS(input.title)
-        let bodyEsc = escapeForAS(input.body)
-        let bodyHTML = "<div><h1>\(titleEsc)</h1></div><div>\(htmlEncode(input.body))</div>"
+        // Build the HTML body first so user-supplied markup characters are
+        // escaped, then escape the whole HTML string for AppleScript embedding.
+        let bodyHTML = "<div><h1>\(htmlEncode(input.title))</h1></div><div>\(htmlEncode(input.body))</div>"
         let bodyHTMLEsc = escapeForAS(bodyHTML)
 
         let target: String
@@ -250,8 +302,6 @@ actor NotesService {
             target = "default folder"
         }
 
-        // Use the title/body two-arg form: first line of body becomes the title.
-        let _ = bodyEsc
         let script = """
         tell application "Notes"
             set newNote to make new note at \(target) with properties {body: "\(bodyHTMLEsc)"}
@@ -269,27 +319,66 @@ actor NotesService {
     }
 
     func updateNote(_ input: UpdateNoteInput) async throws -> Note {
-        let existing = try await getNote(id: input.id)
-        let newTitle = input.title ?? existing.title
-        let newBody = input.body ?? existing.plainBody
-        let html = "<div><h1>\(htmlEncode(newTitle))</h1></div><div>\(htmlEncode(newBody))</div>"
-        let idEsc = escapeForAS(input.id)
-        let htmlEsc = escapeForAS(html)
-        let script = """
-        tell application "Notes"
-            try
-                set n to note id "\(idEsc)"
-            on error
-                return "__NOT_FOUND__"
-            end try
-            set body of n to "\(htmlEsc)"
-            return (id of n as text)
-        end tell
-        """
-        let result = try await runScript(script).trimmingCharacters(in: .whitespacesAndNewlines)
-        if result == "__NOT_FOUND__" {
-            throw NotesError.notFound("No note with identifier '\(input.id)'.")
+        // Reject completely empty updates so callers can't accidentally no-op
+        // through this tool.
+        guard input.title != nil || input.body != nil else {
+            throw NotesError.invalidInput("Provide 'title' and/or 'body' to update.")
         }
+
+        // Confirm the note exists up front so we can return a clean not-found
+        // error instead of an opaque AppleScript failure.
+        _ = try await getNote(id: input.id)
+
+        let idEsc = escapeForAS(input.id)
+
+        // We only ever rewrite the field(s) the caller specified. Changing only
+        // the title leaves the existing body — including checklists, tables,
+        // images, attachments, and other rich content — untouched. Changing
+        // only the body leaves the existing title untouched.
+        if let newTitle = input.title {
+            let titleEsc = escapeForAS(newTitle)
+            let script = """
+            tell application "Notes"
+                try
+                    set n to note id "\(idEsc)"
+                on error
+                    return "__NOT_FOUND__"
+                end try
+                set name of n to "\(titleEsc)"
+                return "ok"
+            end tell
+            """
+            let result = try await runScript(script).trimmingCharacters(in: .whitespacesAndNewlines)
+            if result == "__NOT_FOUND__" {
+                throw NotesError.notFound("No note with identifier '\(input.id)'.")
+            }
+        }
+
+        if let newBody = input.body {
+            // Setting the body of a note replaces all rich content. Document
+            // this clearly via the tool description rather than silently
+            // round-tripping plaintext. The title is preserved by re-prefixing
+            // it as the first <h1>, which Notes treats as the note's title.
+            let currentTitle = (try await getNote(id: input.id)).title
+            let html = "<div><h1>\(htmlEncode(currentTitle))</h1></div><div>\(htmlEncode(newBody))</div>"
+            let htmlEsc = escapeForAS(html)
+            let script = """
+            tell application "Notes"
+                try
+                    set n to note id "\(idEsc)"
+                on error
+                    return "__NOT_FOUND__"
+                end try
+                set body of n to "\(htmlEsc)"
+                return "ok"
+            end tell
+            """
+            let result = try await runScript(script).trimmingCharacters(in: .whitespacesAndNewlines)
+            if result == "__NOT_FOUND__" {
+                throw NotesError.notFound("No note with identifier '\(input.id)'.")
+            }
+        }
+
         return try await getNote(id: input.id)
     }
 

@@ -8,15 +8,69 @@
 
 import Foundation
 
+/// Per-session lifecycle state. The server tracks one of these per
+/// `Mcp-Session-Id`, so independent clients have independent initialization
+/// state and the protocol-version negotiation result is tied to the session
+/// rather than shared across the whole server.
+actor MCPSessionState {
+    enum Phase {
+        case awaitingInitialize
+        case awaitingInitialized
+        case ready
+    }
+
+    let id: String
+    private(set) var phase: Phase = .awaitingInitialize
+    private(set) var negotiatedProtocolVersion: String? = nil
+    private(set) var lastUsed: Date = Date()
+
+    init(id: String = UUID().uuidString) {
+        self.id = id
+    }
+
+    func markInitialized(protocolVersion: String) {
+        self.phase = .awaitingInitialized
+        self.negotiatedProtocolVersion = protocolVersion
+        self.lastUsed = Date()
+    }
+
+    func markReady() {
+        if phase == .awaitingInitialized {
+            phase = .ready
+        }
+        self.lastUsed = Date()
+    }
+
+    func touch() {
+        self.lastUsed = Date()
+    }
+
+    var isInitialized: Bool {
+        switch phase {
+        case .awaitingInitialize: return false
+        case .awaitingInitialized, .ready: return true
+        }
+    }
+}
+
 actor MCPRequestHandler {
-    let sessionID: String = UUID().uuidString
     private let reminders: RemindersService
     private let calendar: CalendarService
     private let notes: NotesService
     private let serviceFlags: ServiceFlags
     private let serverName = "orbit-mcp"
     private let serverVersion = "0.2.0"
-    private let protocolVersion = "2025-06-18"
+
+    /// Versions we know how to negotiate, newest first. The server replies with
+    /// the client's requested version when supported, otherwise with our
+    /// preferred (latest) version.
+    static let supportedProtocolVersions: [String] = [
+        "2025-11-25",
+        "2025-06-18"
+    ]
+    static let preferredProtocolVersion: String = supportedProtocolVersions[0]
+
+    private var sessions: [String: MCPSessionState] = [:]
 
     init(reminders: RemindersService, calendar: CalendarService, notes: NotesService, serviceFlags: ServiceFlags) {
         self.reminders = reminders
@@ -25,21 +79,102 @@ actor MCPRequestHandler {
         self.serviceFlags = serviceFlags
     }
 
-    /// Returns nil for notifications (no response should be sent).
-    func handle(payload: Data) async -> Data? {
+    // MARK: Session lookup
+
+    /// Get an existing session by ID. Used by the HTTP layer to validate
+    /// `Mcp-Session-Id` headers on non-`initialize` requests.
+    func session(id: String) -> MCPSessionState? {
+        sessions[id]
+    }
+
+    /// Forget a session. Used by `DELETE /mcp`.
+    func dropSession(id: String) {
+        sessions.removeValue(forKey: id)
+    }
+
+    // MARK: Public entry point
+
+    /// Result of handling one HTTP request. `sessionID` is non-nil when the
+    /// request created or used a session and the client should receive
+    /// `Mcp-Session-Id` on the response.
+    struct Outcome {
+        var body: Data?            // JSON-RPC response body, or nil for notifications
+        var sessionID: String?     // Session id to echo back
+        var protocolStatus: ProtocolStatus = .ok
+
+        enum ProtocolStatus {
+            case ok
+            case sessionNotFound       // Map to HTTP 404
+            case sessionRequired       // Map to HTTP 400
+            case unsupportedProtocol   // Map to HTTP 400
+        }
+    }
+
+    /// Handle a JSON-RPC request payload. `requestSessionID` is the value of
+    /// the `Mcp-Session-Id` header from the HTTP layer (nil if absent).
+    func handle(payload: Data, requestSessionID: String?, requestProtocolVersion: String?) async -> Outcome {
         guard !payload.isEmpty else {
-            return Self.errorResponse(id: nil, code: -32700, message: "Empty request body")
+            return Outcome(body: Self.errorResponse(id: nil, code: -32700, message: "Empty request body"))
         }
         guard let root = try? JSONSerialization.jsonObject(with: payload) else {
-            return Self.errorResponse(id: nil, code: -32700, message: "Parse error")
+            return Outcome(body: Self.errorResponse(id: nil, code: -32700, message: "Parse error"))
         }
 
+        // Decide upfront whether this request needs a session. The MCP
+        // Streamable HTTP transport requires `initialize` to come without a
+        // session id (we mint one), and all subsequent calls to come with the
+        // session id that initialize returned.
+        let isInitializeBatch = Self.containsInitialize(root)
+
+        if isInitializeBatch {
+            // Mint a fresh session for this initialize call. The body is
+            // processed below and the new session id is echoed back.
+            let session = MCPSessionState()
+            sessions[session.id] = session
+            let body = await process(root: root, session: session)
+            return Outcome(body: body, sessionID: session.id)
+        }
+
+        // Non-initialize requests: require an existing session.
+        guard let sid = requestSessionID, !sid.isEmpty else {
+            return Outcome(
+                body: Self.errorResponse(id: Self.firstID(root), code: -32600, message: "Mcp-Session-Id is required for non-initialize requests."),
+                protocolStatus: .sessionRequired
+            )
+        }
+        guard let session = sessions[sid] else {
+            return Outcome(
+                body: Self.errorResponse(id: Self.firstID(root), code: -32600, message: "Unknown or expired session: '\(sid)'."),
+                sessionID: nil,
+                protocolStatus: .sessionNotFound
+            )
+        }
+
+        // After initialize, clients are expected to send the negotiated
+        // protocol version on each request. We accept any of our supported
+        // versions and reject anything else.
+        if let pv = requestProtocolVersion, !pv.isEmpty {
+            if !Self.supportedProtocolVersions.contains(pv) {
+                return Outcome(
+                    body: Self.errorResponse(id: Self.firstID(root), code: -32600, message: "Unsupported MCP-Protocol-Version: '\(pv)'."),
+                    sessionID: sid,
+                    protocolStatus: .unsupportedProtocol
+                )
+            }
+        }
+
+        let body = await process(root: root, session: session)
+        return Outcome(body: body, sessionID: session.id)
+    }
+
+    // MARK: Batch / single dispatch
+
+    private func process(root: Any, session: MCPSessionState) async -> Data? {
         if let array = root as? [Any] {
-            // Batch request — process each, drop notifications.
             var responses: [Any] = []
             for item in array {
                 if let obj = item as? [String: Any] {
-                    if let resp = await processSingle(obj) {
+                    if let resp = await processSingle(obj, session: session) {
                         responses.append(resp)
                     }
                 }
@@ -51,18 +186,66 @@ actor MCPRequestHandler {
         guard let obj = root as? [String: Any] else {
             return Self.errorResponse(id: nil, code: -32600, message: "Invalid Request")
         }
-        guard let resp = await processSingle(obj) else { return nil }
+        guard let resp = await processSingle(obj, session: session) else { return nil }
         return try? JSONSerialization.data(withJSONObject: resp, options: [])
     }
 
-    private func processSingle(_ obj: [String: Any]) async -> [String: Any]? {
+    private func processSingle(_ obj: [String: Any], session: MCPSessionState) async -> [String: Any]? {
+        // Validate JSON-RPC envelope before dispatch so malformed requests
+        // produce -32600 (Invalid Request) instead of being routed as
+        // method-not-found.
         let id = obj["id"]
-        let method = obj["method"] as? String ?? ""
-        let params = obj["params"] as? [String: Any] ?? [:]
         let isNotification = obj["id"] == nil
 
+        // jsonrpc: must be the literal "2.0"
+        if (obj["jsonrpc"] as? String) != "2.0" {
+            if isNotification { return nil }
+            return Self.errorObject(id: id, code: -32600, message: "Invalid Request: 'jsonrpc' must equal '2.0'.")
+        }
+        // id, when present, must be string or number, never null or other types
+        if !isNotification {
+            if id is NSNull {
+                return Self.errorObject(id: nil, code: -32600, message: "Invalid Request: 'id' must not be null.")
+            }
+            if !(id is String) && !(id is NSNumber) {
+                return Self.errorObject(id: nil, code: -32600, message: "Invalid Request: 'id' must be a string or number.")
+            }
+        }
+        // method must be a non-empty string
+        guard let method = obj["method"] as? String, !method.isEmpty else {
+            if isNotification { return nil }
+            return Self.errorObject(id: id, code: -32600, message: "Invalid Request: 'method' must be a non-empty string.")
+        }
+        // params, if present, must be an object or array
+        let params: [String: Any]
+        if obj["params"] == nil {
+            params = [:]
+        } else if let dict = obj["params"] as? [String: Any] {
+            params = dict
+        } else if obj["params"] is [Any] {
+            // We don't currently use positional params; treat as empty.
+            params = [:]
+        } else {
+            if isNotification { return nil }
+            return Self.errorObject(id: id, code: -32600, message: "Invalid Request: 'params' must be an object or array.")
+        }
+
+        // Lifecycle: only `initialize`, `ping`, and lifecycle notifications
+        // are allowed before initialize completes.
+        let initialized = await session.isInitialized
+        if !initialized {
+            switch method {
+            case "initialize", "ping",
+                 "notifications/initialized", "notifications/cancelled":
+                break
+            default:
+                if isNotification { return nil }
+                return Self.errorObject(id: id, code: -32600, message: "Server has not been initialized. Send 'initialize' first.")
+            }
+        }
+
         do {
-            let result = try await dispatch(method: method, params: params)
+            let result = try await dispatch(method: method, params: params, session: session)
             if isNotification { return nil }
             return [
                 "jsonrpc": "2.0",
@@ -92,11 +275,22 @@ actor MCPRequestHandler {
 
     // MARK: Dispatch
 
-    private func dispatch(method: String, params: [String: Any]) async throws -> Any {
+    private func dispatch(method: String, params: [String: Any], session: MCPSessionState) async throws -> Any {
         switch method {
         case "initialize":
+            // Pick the protocol version: echo the client's requested version
+            // when supported, otherwise reply with our preferred (latest)
+            // version, per MCP negotiation rules.
+            let requested = params["protocolVersion"] as? String
+            let chosen: String
+            if let requested, Self.supportedProtocolVersions.contains(requested) {
+                chosen = requested
+            } else {
+                chosen = Self.preferredProtocolVersion
+            }
+            await session.markInitialized(protocolVersion: chosen)
             return [
-                "protocolVersion": protocolVersion,
+                "protocolVersion": chosen,
                 "serverInfo": [
                     "name": serverName,
                     "version": serverVersion
@@ -108,7 +302,11 @@ actor MCPRequestHandler {
             ]
         case "ping":
             return [:]
-        case "notifications/initialized", "notifications/cancelled":
+        case "notifications/initialized":
+            await session.markReady()
+            return [:]
+        case "notifications/cancelled":
+            await session.touch()
             return [:]
         case "tools/list":
             let enabled = MCPTools.descriptors.compactMap { descriptor -> [String: Any]? in
@@ -138,7 +336,15 @@ actor MCPRequestHandler {
                 throw JSONRPCError(code: -32601, message: reason)
             }
             let args = params["arguments"] as? [String: Any] ?? [:]
-            return try await callTool(name: name, arguments: args)
+            do {
+                return try await callTool(name: name, arguments: args)
+            } catch let err as ToolInputError {
+                // Per MCP 2025-11-25, tool input validation failures should be
+                // returned as a successful JSON-RPC response with isError=true
+                // so the model can correct itself rather than treating the
+                // protocol exchange as broken.
+                return Self.toolErrorResult(message: err.message)
+            }
         case "resources/list":
             return ["resources": []]
         case "prompts/list":
@@ -170,14 +376,14 @@ actor MCPRequestHandler {
 
         case "reminders_get":
             guard let id = arguments["id"] as? String else {
-                throw JSONRPCError(code: -32602, message: "'id' is required")
+                throw ToolInputError("'id' is required")
             }
             let item = try await reminders.reminder(id: id)
             return Self.toolResult(json: item)
 
         case "reminders_create":
             guard let title = arguments["title"] as? String else {
-                throw JSONRPCError(code: -32602, message: "'title' is required")
+                throw ToolInputError("'title' is required")
             }
             let input = RemindersService.CreateInput(
                 title: title,
@@ -192,7 +398,7 @@ actor MCPRequestHandler {
 
         case "reminders_update":
             guard let id = arguments["id"] as? String else {
-                throw JSONRPCError(code: -32602, message: "'id' is required")
+                throw ToolInputError("'id' is required")
             }
             var input = RemindersService.UpdateInput(id: id)
             if let v = arguments["title"] as? String { input.title = v }
@@ -215,7 +421,7 @@ actor MCPRequestHandler {
 
         case "reminders_complete":
             guard let id = arguments["id"] as? String else {
-                throw JSONRPCError(code: -32602, message: "'id' is required")
+                throw ToolInputError("'id' is required")
             }
             let completed = arguments["completed"] as? Bool ?? true
             var input = RemindersService.UpdateInput(id: id)
@@ -225,7 +431,7 @@ actor MCPRequestHandler {
 
         case "reminders_delete":
             guard let id = arguments["id"] as? String else {
-                throw JSONRPCError(code: -32602, message: "'id' is required")
+                throw ToolInputError("'id' is required")
             }
             try await reminders.deleteReminder(id: id)
             return Self.toolResult(text: "Deleted reminder \(id).")
@@ -238,10 +444,10 @@ actor MCPRequestHandler {
 
         case "calendar_search":
             guard let startStr = arguments["start"] as? String, let start = parseDate(startStr) else {
-                throw JSONRPCError(code: -32602, message: "'start' is required (ISO-8601)")
+                throw ToolInputError("'start' is required (ISO-8601)")
             }
             guard let endStr = arguments["end"] as? String, let end = parseDate(endStr) else {
-                throw JSONRPCError(code: -32602, message: "'end' is required (ISO-8601)")
+                throw ToolInputError("'end' is required (ISO-8601)")
             }
             let filter = CalendarService.EventFilter(
                 start: start,
@@ -255,20 +461,20 @@ actor MCPRequestHandler {
 
         case "calendar_get":
             guard let id = arguments["id"] as? String else {
-                throw JSONRPCError(code: -32602, message: "'id' is required")
+                throw ToolInputError("'id' is required")
             }
             let event = try await calendar.event(id: id)
             return Self.toolResult(json: event)
 
         case "calendar_create":
             guard let title = arguments["title"] as? String else {
-                throw JSONRPCError(code: -32602, message: "'title' is required")
+                throw ToolInputError("'title' is required")
             }
             guard let startStr = arguments["start"] as? String, let start = parseDate(startStr) else {
-                throw JSONRPCError(code: -32602, message: "'start' is required (ISO-8601)")
+                throw ToolInputError("'start' is required (ISO-8601)")
             }
             guard let endStr = arguments["end"] as? String, let end = parseDate(endStr) else {
-                throw JSONRPCError(code: -32602, message: "'end' is required (ISO-8601)")
+                throw ToolInputError("'end' is required (ISO-8601)")
             }
             let input = CalendarService.CreateEventInput(
                 title: title,
@@ -285,7 +491,7 @@ actor MCPRequestHandler {
 
         case "calendar_update":
             guard let id = arguments["id"] as? String else {
-                throw JSONRPCError(code: -32602, message: "'id' is required")
+                throw ToolInputError("'id' is required")
             }
             var input = CalendarService.UpdateEventInput(id: id)
             if let v = arguments["title"] as? String { input.title = v }
@@ -307,7 +513,7 @@ actor MCPRequestHandler {
 
         case "calendar_delete":
             guard let id = arguments["id"] as? String else {
-                throw JSONRPCError(code: -32602, message: "'id' is required")
+                throw ToolInputError("'id' is required")
             }
             try await calendar.deleteEvent(id: id)
             return Self.toolResult(text: "Deleted event \(id).")
@@ -331,14 +537,14 @@ actor MCPRequestHandler {
 
         case "notes_get":
             guard let id = arguments["id"] as? String else {
-                throw JSONRPCError(code: -32602, message: "'id' is required")
+                throw ToolInputError("'id' is required")
             }
             let note = try await notes.getNote(id: id)
             return Self.toolResult(json: note)
 
         case "notes_create":
             guard let title = arguments["title"] as? String else {
-                throw JSONRPCError(code: -32602, message: "'title' is required")
+                throw ToolInputError("'title' is required")
             }
             let input = NotesService.CreateNoteInput(
                 title: title,
@@ -352,7 +558,7 @@ actor MCPRequestHandler {
 
         case "notes_update":
             guard let id = arguments["id"] as? String else {
-                throw JSONRPCError(code: -32602, message: "'id' is required")
+                throw ToolInputError("'id' is required")
             }
             var input = NotesService.UpdateNoteInput(id: id)
             if let v = arguments["title"] as? String { input.title = v }
@@ -362,7 +568,7 @@ actor MCPRequestHandler {
 
         case "notes_delete":
             guard let id = arguments["id"] as? String else {
-                throw JSONRPCError(code: -32602, message: "'id' is required")
+                throw ToolInputError("'id' is required")
             }
             try await notes.deleteNote(id: id)
             return Self.toolResult(text: "Deleted note \(id).")
@@ -375,10 +581,10 @@ actor MCPRequestHandler {
 
         case "time_convert":
             guard let time = arguments["time"] as? String else {
-                throw JSONRPCError(code: -32602, message: "'time' is required")
+                throw ToolInputError("'time' is required")
             }
             guard let target = arguments["toTimezone"] as? String else {
-                throw JSONRPCError(code: -32602, message: "'toTimezone' is required")
+                throw ToolInputError("'toTimezone' is required")
             }
             let info = try TimeService.convert(
                 time: time,
@@ -389,7 +595,7 @@ actor MCPRequestHandler {
 
         case "time_add":
             guard let time = arguments["time"] as? String else {
-                throw JSONRPCError(code: -32602, message: "'time' is required")
+                throw ToolInputError("'time' is required")
             }
             let info = try TimeService.add(
                 time: time,
@@ -406,10 +612,10 @@ actor MCPRequestHandler {
 
         case "time_diff":
             guard let from = arguments["from"] as? String else {
-                throw JSONRPCError(code: -32602, message: "'from' is required")
+                throw ToolInputError("'from' is required")
             }
             guard let to = arguments["to"] as? String else {
-                throw JSONRPCError(code: -32602, message: "'to' is required")
+                throw ToolInputError("'to' is required")
             }
             let diff = try TimeService.diff(
                 from: from,
@@ -420,7 +626,7 @@ actor MCPRequestHandler {
 
         case "time_format":
             guard let time = arguments["time"] as? String else {
-                throw JSONRPCError(code: -32602, message: "'time' is required")
+                throw ToolInputError("'time' is required")
             }
             let formatted = try TimeService.format(
                 time: time,
@@ -471,6 +677,16 @@ actor MCPRequestHandler {
         ]
     }
 
+    /// Tool execution error result, per MCP 2025-11-25: a successful JSON-RPC
+    /// response carrying `CallToolResult` with `isError: true` so the model can
+    /// see the failure as part of the tool exchange.
+    static func toolErrorResult(message: String) -> [String: Any] {
+        return [
+            "content": [["type": "text", "text": message]],
+            "isError": true
+        ]
+    }
+
     private func parseDate(_ value: Any?) -> Date? {
         guard let s = value as? String, !s.isEmpty else { return nil }
         let iso = ISO8601DateFormatter()
@@ -502,10 +718,47 @@ actor MCPRequestHandler {
             "error": error
         ]
     }
+
+    // MARK: Helpers for envelope inspection
+
+    /// True if the (single or batch) request contains an `initialize` method.
+    private static func containsInitialize(_ root: Any) -> Bool {
+        if let arr = root as? [Any] {
+            for item in arr {
+                if let obj = item as? [String: Any], (obj["method"] as? String) == "initialize" {
+                    return true
+                }
+            }
+            return false
+        }
+        if let obj = root as? [String: Any], (obj["method"] as? String) == "initialize" {
+            return true
+        }
+        return false
+    }
+
+    /// First request id from a batch or single request, used to attach id to
+    /// envelope-level errors when possible.
+    private static func firstID(_ root: Any) -> Any? {
+        if let obj = root as? [String: Any] { return obj["id"] }
+        if let arr = root as? [Any] {
+            for item in arr {
+                if let obj = item as? [String: Any], obj["id"] != nil { return obj["id"] }
+            }
+        }
+        return nil
+    }
 }
 
 nonisolated struct JSONRPCError: Error {
     let code: Int
     let message: String
     var data: Any? = nil
+}
+
+/// Argument validation failure inside `tools/call`. Surfaced as a successful
+/// JSON-RPC response with `isError: true` per MCP 2025-11-25.
+nonisolated struct ToolInputError: Error {
+    let message: String
+    init(_ message: String) { self.message = message }
 }

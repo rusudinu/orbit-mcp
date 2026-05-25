@@ -21,6 +21,14 @@ actor MCPHTTPServer {
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private let handler: MCPRequestHandler
 
+    /// Resource limits for the local HTTP parser. Even though the listener is
+    /// bound to 127.0.0.1, the endpoint mediates personal data, so we cap
+    /// header and body sizes to prevent runaway memory growth from a buggy or
+    /// hostile local process or browser page.
+    private static let maxHeaderBytes = 64 * 1024            // 64 KB of headers
+    private static let maxBodyBytes = 8 * 1024 * 1024        // 8 MB of body
+    private static let maxBufferedBytes = maxHeaderBytes + maxBodyBytes
+
     init(port: UInt16, reminders: RemindersService, calendar: CalendarService, notes: NotesService, serviceFlags: ServiceFlags) {
         self.port = port
         self.reminders = reminders
@@ -113,20 +121,44 @@ actor MCPHTTPServer {
         var buffer = Data()
         while true {
             // Pull bytes until we have at least one complete request in the buffer.
-            while HTTPRequest.parse(from: buffer) == nil {
-                guard let chunk = await readChunk(connection: connection) else {
+            var parsed: (request: HTTPRequest, byteCount: Int)? = nil
+            while parsed == nil {
+                switch HTTPRequest.parse(from: buffer, maxHeaderBytes: Self.maxHeaderBytes, maxBodyBytes: Self.maxBodyBytes) {
+                case .complete(let request, let byteCount):
+                    parsed = (request, byteCount)
+                case .needMoreData:
+                    if buffer.count >= Self.maxBufferedBytes {
+                        // Defensive: refuse to buffer more than the configured ceiling.
+                        await sendStatus(connection: connection, status: 413, message: "Payload Too Large")
+                        connection.cancel()
+                        return
+                    }
+                    guard let chunk = await readChunk(connection: connection) else {
+                        connection.cancel()
+                        return
+                    }
+                    buffer.append(chunk)
+                case .headerTooLarge:
+                    await sendStatus(connection: connection, status: 431, message: "Request Header Fields Too Large")
+                    connection.cancel()
+                    return
+                case .bodyTooLarge:
+                    await sendStatus(connection: connection, status: 413, message: "Payload Too Large")
+                    connection.cancel()
+                    return
+                case .malformed:
+                    await sendStatus(connection: connection, status: 400, message: "Bad Request")
                     connection.cancel()
                     return
                 }
-                buffer.append(chunk)
             }
-            guard let parsed = HTTPRequest.parse(from: buffer) else {
+            guard let (request, byteCount) = parsed else {
                 connection.cancel()
                 return
             }
-            buffer = buffer.subdata(in: parsed.byteCount..<buffer.count)
+            buffer = buffer.subdata(in: byteCount..<buffer.count)
 
-            let (response, closeAfter) = await respond(to: parsed.request)
+            let (response, closeAfter) = await respond(to: request)
             let sent = await send(response, on: connection, close: closeAfter)
             if !sent || closeAfter {
                 connection.cancel()
@@ -158,20 +190,45 @@ actor MCPHTTPServer {
         }
     }
 
+    private nonisolated func sendStatus(connection: NWConnection, status: Int, message: String) async {
+        let response = HTTPResponse(status: status, body: Data(message.utf8))
+        _ = await send(response, on: connection, close: true)
+    }
+
     /// Returns the response to send and whether the connection should be closed afterward.
     private func respond(to request: HTTPRequest) async -> (HTTPResponse, Bool) {
         let close = !request.keepAlive
 
+        // Origin validation: MCP Streamable HTTP requires servers to validate
+        // the Origin header on requests originating from browsers. We allow:
+        //   * No Origin at all (native MCP clients usually omit it)
+        //   * Origins on 127.0.0.1 / localhost (same-origin from a local app)
+        // Any other origin is rejected with HTTP 403 and no CORS headers, so
+        // a malicious web page cannot reach personal-data tools even if it
+        // can connect to the loopback port.
+        if let origin = request.headers["origin"], !origin.isEmpty {
+            if !Self.isAllowedLocalOrigin(origin) {
+                return (HTTPResponse(
+                    status: 403,
+                    body: Data("Forbidden origin".utf8)
+                ), true)
+            }
+        }
+
         if request.method == "OPTIONS" {
-            return (HTTPResponse(
-                status: 204,
-                headers: [
-                    "Access-Control-Allow-Origin": "*",
-                    "Access-Control-Allow-Methods": "POST, GET, DELETE, OPTIONS",
-                    "Access-Control-Allow-Headers": "Content-Type, Mcp-Session-Id, Accept",
-                    "Access-Control-Max-Age": "600"
-                ]
-            ), close)
+            // Only echo CORS headers when the origin is one we just validated.
+            // Avoid wildcard `*` so personal-data tools aren't exposed to
+            // arbitrary cross-origin browser code.
+            var headers: [String: String] = [
+                "Access-Control-Allow-Methods": "POST, GET, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, Mcp-Session-Id, MCP-Protocol-Version, Accept",
+                "Access-Control-Max-Age": "600"
+            ]
+            if let origin = request.headers["origin"], Self.isAllowedLocalOrigin(origin) {
+                headers["Access-Control-Allow-Origin"] = origin
+                headers["Vary"] = "Origin"
+            }
+            return (HTTPResponse(status: 204, headers: headers), close)
         }
 
         guard request.path.hasPrefix("/mcp") else {
@@ -182,31 +239,87 @@ actor MCPHTTPServer {
         case "GET":
             return (HTTPResponse(
                 status: 405,
-                headers: ["Allow": "POST, OPTIONS"],
+                headers: ["Allow": "POST, DELETE, OPTIONS"],
                 body: Data("Method Not Allowed".utf8)
             ), close)
+
         case "DELETE":
-            return (HTTPResponse(status: 204), close)
-        case "POST":
-            let responseJSON = await handler.handle(payload: request.body)
-            if let body = responseJSON {
-                let headers: [String: String] = [
-                    "Content-Type": "application/json",
-                    "Access-Control-Allow-Origin": "*",
-                    "Mcp-Session-Id": handler.sessionID
-                ]
-                return (HTTPResponse(status: 200, headers: headers, body: body), close)
-            } else {
-                // Pure notification — no body to return.
-                return (HTTPResponse(status: 202), close)
+            // Allow clients to terminate their session per MCP Streamable HTTP.
+            if let sid = request.headers["mcp-session-id"], !sid.isEmpty {
+                await handler.dropSession(id: sid)
             }
+            return (HTTPResponse(status: 204), close)
+
+        case "POST":
+            let sessionID = request.headers["mcp-session-id"]
+            let protocolVersion = request.headers["mcp-protocol-version"]
+            let outcome = await handler.handle(
+                payload: request.body,
+                requestSessionID: sessionID,
+                requestProtocolVersion: protocolVersion
+            )
+
+            switch outcome.protocolStatus {
+            case .sessionRequired, .unsupportedProtocol:
+                let body = outcome.body ?? Data()
+                var headers = corsHeaders(for: request)
+                headers["Content-Type"] = "application/json"
+                return (HTTPResponse(status: 400, headers: headers, body: body), close)
+            case .sessionNotFound:
+                let body = outcome.body ?? Data()
+                var headers = corsHeaders(for: request)
+                headers["Content-Type"] = "application/json"
+                return (HTTPResponse(status: 404, headers: headers, body: body), close)
+            case .ok:
+                if let body = outcome.body {
+                    var headers = corsHeaders(for: request)
+                    headers["Content-Type"] = "application/json"
+                    if let sid = outcome.sessionID {
+                        headers["Mcp-Session-Id"] = sid
+                    }
+                    return (HTTPResponse(status: 200, headers: headers, body: body), close)
+                } else {
+                    // Pure notification — no body to return.
+                    var headers = corsHeaders(for: request)
+                    if let sid = outcome.sessionID {
+                        headers["Mcp-Session-Id"] = sid
+                    }
+                    return (HTTPResponse(status: 202, headers: headers), close)
+                }
+            }
+
         default:
             return (HTTPResponse(
                 status: 405,
-                headers: ["Allow": "POST, OPTIONS"],
+                headers: ["Allow": "POST, DELETE, OPTIONS"],
                 body: Data("Method Not Allowed".utf8)
             ), close)
         }
+    }
+
+    /// Construct CORS headers for a same-origin local request. Only echoes the
+    /// origin when it has already passed `isAllowedLocalOrigin`.
+    private func corsHeaders(for request: HTTPRequest) -> [String: String] {
+        var headers: [String: String] = [:]
+        if let origin = request.headers["origin"], Self.isAllowedLocalOrigin(origin) {
+            headers["Access-Control-Allow-Origin"] = origin
+            headers["Vary"] = "Origin"
+        }
+        return headers
+    }
+
+    /// True if `origin` is one of the loopback origins we trust. Anything else
+    /// (a real public origin) is rejected outright.
+    private static func isAllowedLocalOrigin(_ origin: String) -> Bool {
+        // Browsers can send "null" for some sandboxed contexts; reject those.
+        guard let url = URL(string: origin), let host = url.host?.lowercased() else {
+            return false
+        }
+        // Allow http(s) on localhost / 127.0.0.1 / [::1]. Disallow file:, data:,
+        // and arbitrary remote origins.
+        let scheme = (url.scheme ?? "").lowercased()
+        guard scheme == "http" || scheme == "https" else { return false }
+        return host == "127.0.0.1" || host == "localhost" || host == "::1" || host == "[::1]"
     }
 
     private nonisolated func send(_ response: HTTPResponse, on connection: NWConnection, close: Bool) async -> Bool {
@@ -243,18 +356,37 @@ nonisolated struct HTTPRequest {
         return version == "HTTP/1.1"
     }
 
-    /// Parses the first complete request found at the start of `data`.
-    /// Returns the parsed request and the number of bytes it consumed,
-    /// or nil if more bytes are needed.
-    static func parse(from data: Data) -> (request: HTTPRequest, byteCount: Int)? {
-        guard let headerEnd = data.range(of: Data("\r\n\r\n".utf8)) else { return nil }
+    /// Result of a parse attempt over a buffer. Distinguishes recoverable
+    /// "need more data" from unrecoverable parse failures and resource-limit
+    /// breaches so the server can map them to specific HTTP status codes.
+    enum ParseResult {
+        case complete(request: HTTPRequest, byteCount: Int)
+        case needMoreData
+        case headerTooLarge
+        case bodyTooLarge
+        case malformed
+    }
+
+    /// Parses the first complete request found at the start of `data`,
+    /// enforcing maximum header and body sizes so a single connection cannot
+    /// grow our memory footprint without bound.
+    static func parse(from data: Data, maxHeaderBytes: Int, maxBodyBytes: Int) -> ParseResult {
+        guard let headerEnd = data.range(of: Data("\r\n\r\n".utf8)) else {
+            // No complete header section yet. Fail fast if we've already
+            // exceeded the ceiling to avoid buffering forever.
+            if data.count > maxHeaderBytes { return .headerTooLarge }
+            return .needMoreData
+        }
+        if headerEnd.lowerBound > maxHeaderBytes {
+            return .headerTooLarge
+        }
         let headerData = data.subdata(in: 0..<headerEnd.lowerBound)
-        guard let headerString = String(data: headerData, encoding: .utf8) else { return nil }
+        guard let headerString = String(data: headerData, encoding: .utf8) else { return .malformed }
         var lines = headerString.components(separatedBy: "\r\n")
-        guard !lines.isEmpty else { return nil }
+        guard !lines.isEmpty else { return .malformed }
         let requestLine = lines.removeFirst()
         let parts = requestLine.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: false)
-        guard parts.count == 3 else { return nil }
+        guard parts.count == 3 else { return .malformed }
         var headers: [String: String] = [:]
         for line in lines {
             if let idx = line.firstIndex(of: ":") {
@@ -265,10 +397,27 @@ nonisolated struct HTTPRequest {
         }
 
         let bodyStart = headerEnd.upperBound
-        let contentLength = Int(headers["content-length"] ?? "0") ?? 0
+        guard let cl = headers["content-length"] else {
+            // No Content-Length: treat as zero body. Chunked transfer encoding
+            // is not supported — local clients all send Content-Length.
+            let request = HTTPRequest(
+                method: String(parts[0]),
+                path: String(parts[1]),
+                version: String(parts[2]),
+                headers: headers,
+                body: Data()
+            )
+            return .complete(request: request, byteCount: bodyStart)
+        }
+        guard let contentLength = Int(cl), contentLength >= 0 else {
+            return .malformed
+        }
+        if contentLength > maxBodyBytes {
+            return .bodyTooLarge
+        }
         let available = data.count - bodyStart
         if available < contentLength {
-            return nil // wait for more bytes
+            return .needMoreData
         }
         let body = data.subdata(in: bodyStart..<bodyStart + contentLength)
 
@@ -279,7 +428,7 @@ nonisolated struct HTTPRequest {
             headers: headers,
             body: body
         )
-        return (request, bodyStart + contentLength)
+        return .complete(request: request, byteCount: bodyStart + contentLength)
     }
 }
 
@@ -312,8 +461,11 @@ nonisolated struct HTTPResponse {
         case 202: return "Accepted"
         case 204: return "No Content"
         case 400: return "Bad Request"
+        case 403: return "Forbidden"
         case 404: return "Not Found"
         case 405: return "Method Not Allowed"
+        case 413: return "Payload Too Large"
+        case 431: return "Request Header Fields Too Large"
         case 500: return "Internal Server Error"
         default: return "OK"
         }

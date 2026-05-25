@@ -232,10 +232,13 @@ nonisolated enum TimeService {
         isoCalendar.timeZone = tz
 
         let comps = calendar.dateComponents(
-            [.year, .month, .day, .hour, .minute, .second, .weekday, .dayOfYear],
+            [.year, .month, .day, .hour, .minute, .second, .weekday],
             from: date
         )
         let weekOfYear = isoCalendar.component(.weekOfYear, from: date)
+        // `Calendar.Component.dayOfYear` is macOS 15+, compute via ordinality
+        // for macOS 14 compatibility.
+        let dayOfYear = calendar.ordinality(of: .day, in: .year, for: date) ?? 0
 
         let isoFormatter = ISO8601DateFormatter()
         isoFormatter.timeZone = tz
@@ -288,7 +291,7 @@ nonisolated enum TimeService {
             dayOfWeek: dayOfWeek,
             dayOfWeekNumber: isoWeekday,
             dayOfMonth: comps.day ?? 0,
-            dayOfYear: comps.dayOfYear ?? 0,
+            dayOfYear: dayOfYear,
             weekOfYear: weekOfYear,
             month: comps.month ?? 0,
             monthName: monthString,

@@ -57,12 +57,14 @@ struct MenuBarView: View {
                 label: "Reminders",
                 status: state.remindersAccess,
                 enabled: $state.remindersEnabled,
+                writeOnlyHint: "Reminders is in write-only mode. Orbit MCP needs full access to read and search reminders. Re-grant in System Settings → Privacy & Security → Reminders.",
                 grant: { Task { await state.requestRemindersAccess() } }
             )
             accessRow(
                 label: "Calendar",
                 status: state.calendarAccess,
                 enabled: $state.calendarEnabled,
+                writeOnlyHint: "Calendar is in write-only mode. Orbit MCP needs full access to read and search events. Re-grant in System Settings → Privacy & Security → Calendars.",
                 grant: { Task { await state.requestCalendarAccess() } }
             )
             accessRow(
@@ -91,17 +93,22 @@ struct MenuBarView: View {
         status: AppState.AccessStatus,
         enabled: Binding<Bool>,
         hint: String? = nil,
+        writeOnlyHint: String? = nil,
         grant: (() -> Void)?
     ) -> some View {
         let isOn = enabled.wrappedValue
+        let effectiveHint: String? = {
+            if isOn, status == .writeOnly, let writeOnlyHint { return writeOnlyHint }
+            return hint
+        }()
         return HStack(spacing: 6) {
             Image(systemName: isOn ? icon(for: status) : "circle.slash")
                 .foregroundStyle(isOn ? tint(for: status) : Color.secondary)
             Text("\(label): \(isOn ? text(for: status) : "off")")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            if let hint {
-                HintButton(text: hint)
+            if let effectiveHint {
+                HintButton(text: effectiveHint)
             }
             Spacer()
             if isOn, status != .granted, let grant {
@@ -148,7 +155,7 @@ struct MenuBarView: View {
             Text(state.allowDestructive ? "Destructive actions: allowed" : "Destructive actions: blocked")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            HintButton(text: "When off, tools that modify or delete existing items (update/delete across reminders, calendar, and notes) are hidden and rejected. Creating new items and completing reminders stay available.")
+            HintButton(text: "When off, tools that update or delete existing items (update/delete across reminders, calendar, and notes) are hidden and rejected. Creating new items, and toggling reminder completion, stay available.")
             Spacer()
             Toggle("", isOn: $state.allowDestructive)
                 .toggleStyle(.switch)
@@ -161,6 +168,7 @@ struct MenuBarView: View {
     private func icon(for status: AppState.AccessStatus) -> String {
         switch status {
         case .granted: return "checkmark.seal.fill"
+        case .writeOnly: return "exclamationmark.triangle.fill"
         case .denied, .restricted: return "exclamationmark.triangle.fill"
         case .requesting: return "clock.fill"
         case .unknown: return "questionmark.circle"
@@ -170,6 +178,7 @@ struct MenuBarView: View {
     private func tint(for status: AppState.AccessStatus) -> Color {
         switch status {
         case .granted: return .green
+        case .writeOnly: return .orange
         case .denied, .restricted: return .red
         case .requesting: return .orange
         case .unknown: return .secondary
@@ -179,6 +188,7 @@ struct MenuBarView: View {
     private func text(for status: AppState.AccessStatus) -> String {
         switch status {
         case .granted: return "granted"
+        case .writeOnly: return "write-only"
         case .denied: return "denied"
         case .restricted: return "restricted"
         case .requesting: return "requesting…"
