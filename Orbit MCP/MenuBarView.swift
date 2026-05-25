@@ -33,7 +33,7 @@ struct MenuBarView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: "checklist")
+            Image(systemName: "point.3.connected.trianglepath.dotted")
                 .font(.title3)
             VStack(alignment: .leading, spacing: 0) {
                 Text("Orbit MCP")

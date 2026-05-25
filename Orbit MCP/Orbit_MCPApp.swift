@@ -14,7 +14,9 @@ struct Orbit_MCPApp: App {
             MenuBarView()
                 .environmentObject(appState)
         } label: {
-            Image(systemName: appState.serverStatus.isRunning ? "checklist.checked" : "checklist")
+            Image(systemName: appState.serverStatus.isRunning
+                  ? "point.3.filled.connected.trianglepath.dotted"
+                  : "point.3.connected.trianglepath.dotted")
         }
         .menuBarExtraStyle(.window)
     }
