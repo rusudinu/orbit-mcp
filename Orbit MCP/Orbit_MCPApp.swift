@@ -2,16 +2,20 @@
 //  Orbit_MCPApp.swift
 //  Orbit MCP
 //
-//  Created by Dinu Rusu on 25/05/2026.
-//
 
 import SwiftUI
 
 @main
 struct Orbit_MCPApp: App {
+    @StateObject private var appState = AppState()
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        MenuBarExtra {
+            MenuBarView()
+                .environmentObject(appState)
+        } label: {
+            Image(systemName: appState.serverStatus.isRunning ? "checklist.checked" : "checklist")
         }
+        .menuBarExtraStyle(.window)
     }
 }
