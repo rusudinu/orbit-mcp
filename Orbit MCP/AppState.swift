@@ -76,7 +76,7 @@ final class AppState: ObservableObject {
         return """
         {
           "mcpServers": {
-            "orbit-reminders": {
+            "orbit": {
               "url": "\(url)"
             }
           }

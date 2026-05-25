@@ -11,7 +11,7 @@ import Foundation
 actor MCPRequestHandler {
     let sessionID: String = UUID().uuidString
     private let reminders: RemindersService
-    private let serverName = "orbit-reminders-mcp"
+    private let serverName = "orbit-mcp"
     private let serverVersion = "0.1.0"
     private let protocolVersion = "2025-06-18"
 
@@ -89,7 +89,7 @@ actor MCPRequestHandler {
                 "capabilities": [
                     "tools": [:]
                 ],
-                "instructions": "Read and modify Apple Reminders on this Mac. Always start by calling reminders_list_lists to discover list IDs."
+                "instructions": "Tools to read and modify the user's data on this Mac. Currently exposes Apple Reminders; more sources (Notes, Calendar, etc.) may be added later. For Reminders, start by calling reminders_list_lists to discover list IDs."
             ]
         case "ping":
             return [:]
