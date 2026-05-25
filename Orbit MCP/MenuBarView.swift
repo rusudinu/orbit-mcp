@@ -100,10 +100,7 @@ struct MenuBarView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if let hint {
-                Image(systemName: "info.circle")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .help(hint)
+                HintButton(text: hint)
             }
             Spacer()
             if isOn, status != .granted, let grant {
@@ -132,10 +129,7 @@ struct MenuBarView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if let hint {
-                Image(systemName: "info.circle")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .help(hint)
+                HintButton(text: hint)
             }
             Spacer()
             Toggle("", isOn: enabled)
@@ -346,4 +340,32 @@ struct MenuBarView: View {
 
 #Preview {
     MenuBarView().environmentObject(AppState())
+}
+
+/// Small info-icon button that opens a popover with explanatory text on click.
+/// Tooltips alone (`.help`) aren't accessible from a click, so we expose the
+/// same hint via a popover for users who tap rather than hover.
+private struct HintButton: View {
+    let text: String
+    @State private var isPresented = false
+
+    var body: some View {
+        Button {
+            isPresented.toggle()
+        } label: {
+            Image(systemName: "info.circle")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(text)
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            Text(text)
+                .font(.caption)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 240, alignment: .leading)
+                .padding(10)
+        }
+    }
 }
