@@ -1,0 +1,10 @@
+.next/
+node_modules/
+out/
+dist/
+.env*
+!.env.example
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
