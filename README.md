@@ -29,6 +29,8 @@ Open `Orbit MCP.xcodeproj` in Xcode and run the `Orbit MCP` scheme, or build fro
 xcodebuild build -project "Orbit MCP.xcodeproj" -scheme "Orbit MCP" -destination "platform=macOS"
 ```
 
+The checked-in Xcode project uses `AAAAAAAA` as a placeholder Apple Development Team ID. Before distributing signed builds, replace it with your own team ID in Xcode's Signing & Capabilities settings or pass signing settings through your build environment.
+
 ## Usage
 
 Launch Orbit MCP from Xcode or from the built app. The app appears in the menu bar and shows the local MCP endpoint.
