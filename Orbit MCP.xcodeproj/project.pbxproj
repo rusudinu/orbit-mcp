@@ -335,6 +335,8 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Orbit MCP";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Orbit MCP uses Apple Events to read and modify Apple Notes on your behalf so it can expose them to MCP-aware AI clients running locally on this Mac.";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Orbit MCP needs access to your Calendar so it can expose events to MCP-aware AI clients running locally on this Mac.";
@@ -374,6 +376,8 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Orbit MCP";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Orbit MCP uses Apple Events to read and modify Apple Notes on your behalf so it can expose them to MCP-aware AI clients running locally on this Mac.";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Orbit MCP needs access to your Calendar so it can expose events to MCP-aware AI clients running locally on this Mac.";
