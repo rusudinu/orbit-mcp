@@ -3,7 +3,9 @@
 ![Orbit MCP Menubar.png](doc/img/orbit-mcp-icon.png)
 
 Orbit MCP is a macOS menu bar app that exposes local Apple services to MCP-compatible clients over a local Streamable HTTP server.
+
 ![Orbit MCP Menubar.png](doc/img/img.png)
+![Orbit MCP LMStudio.png](doc/img/img_1.png)
 
 Current tools cover:
 
@@ -53,6 +55,8 @@ Copy the generated client configuration from the menu bar UI into your MCP clien
 The token is generated on first launch and stored locally. Use the menu bar to rotate it; you can also turn the requirement off if your MCP client cannot send custom headers, but doing so lets any other local process on the Mac reach the same tools.
 
 The app remembers the last bound port so existing MCP client configs can keep working between launches when possible.
+
+You can use it in any tools that supports MCPs, like Codex, Cursor, LMStudio etc.
 
 ## Privacy And Permissions
 
