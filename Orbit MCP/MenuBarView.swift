@@ -12,6 +12,7 @@ struct MenuBarView: View {
     enum CopyFeedback: Equatable {
         case url
         case config
+        case token
     }
 
     var body: some View {
@@ -80,6 +81,7 @@ struct MenuBarView: View {
                 hint: "Helper tools so the model knows today's date, can convert timezones, add durations, and format dates."
             )
             destructiveRow
+            bearerTokenRow
             if case .failed(let message) = state.serverStatus {
                 Text(message)
                     .font(.caption)
@@ -165,6 +167,23 @@ struct MenuBarView: View {
         }
     }
 
+    private var bearerTokenRow: some View {
+        HStack(spacing: 6) {
+            Image(systemName: state.requireBearerToken ? "key.fill" : "key.slash.fill")
+                .foregroundStyle(state.requireBearerToken ? Color.green : Color.orange)
+            Text(state.requireBearerToken ? "Bearer token: required" : "Bearer token: off")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HintButton(text: "When on, every request to /mcp must include 'Authorization: Bearer <token>'. The copied client config already includes this header. Turn off only if you trust every other process on this Mac to access your reminders, calendar, and notes.")
+            Spacer()
+            Toggle("", isOn: $state.requireBearerToken)
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .labelsHidden()
+                .help("Require an Authorization: Bearer header on every MCP request")
+        }
+    }
+
     private func icon(for status: AppState.AccessStatus) -> String {
         switch status {
         case .granted: return "checkmark.seal.fill"
@@ -232,6 +251,51 @@ struct MenuBarView: View {
             }
             .padding(8)
             .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+
+            // Bearer token row, shown only while token auth is on. Lets users
+            // copy the raw token (for clients that need it pasted manually)
+            // or rotate it. The full config below already embeds it, but
+            // exposing the token directly is useful for ad-hoc curl testing.
+            if state.requireBearerToken {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 4) {
+                        Text("Bearer token")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        HintButton(text: "Required on every /mcp request as 'Authorization: Bearer <token>'. The copied client config already includes it.")
+                        Spacer()
+                    }
+                    HStack(spacing: 6) {
+                        Text(state.bearerToken)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        Button {
+                            copy(state.bearerToken, kind: .token)
+                        } label: {
+                            if copyFeedback == .token {
+                                Label("Copied", systemImage: "checkmark")
+                            } else {
+                                Label("Copy", systemImage: "doc.on.doc")
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                        Button {
+                            state.regenerateBearerToken()
+                        } label: {
+                            Label("Rotate", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                        .help("Generate a new token. Existing clients will need to update their config.")
+                    }
+                }
+                .padding(8)
+                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+            }
 
             // Big primary "Copy MCP config" button — the main copy affordance.
             Button {

@@ -1,6 +1,9 @@
 # Orbit MCP
 
+![Orbit MCP Menubar.png](doc/img/orbit-mcp-icon.png)
+
 Orbit MCP is a macOS menu bar app that exposes local Apple services to MCP-compatible clients over a local Streamable HTTP server.
+![Orbit MCP Menubar.png](doc/img/img.png)
 
 Current tools cover:
 
@@ -30,17 +33,22 @@ xcodebuild build -project "Orbit MCP.xcodeproj" -scheme "Orbit MCP" -destination
 
 Launch Orbit MCP from Xcode or from the built app. The app appears in the menu bar and shows the local MCP endpoint.
 
-Copy the generated client configuration from the menu bar UI into your MCP client. It will look like:
+Copy the generated client configuration from the menu bar UI into your MCP client. With the default bearer-token protection on, it will look like:
 
 ```json
 {
   "mcpServers": {
     "orbit": {
-      "url": "http://127.0.0.1:<port>/mcp"
+      "url": "http://127.0.0.1:<port>/mcp",
+      "headers": {
+        "Authorization": "Bearer <generated-token>"
+      }
     }
   }
 }
 ```
+
+The token is generated on first launch and stored locally. Use the menu bar to rotate it; you can also turn the requirement off if your MCP client cannot send custom headers, but doing so lets any other local process on the Mac reach the same tools.
 
 The app remembers the last bound port so existing MCP client configs can keep working between launches when possible.
 
@@ -53,6 +61,8 @@ The app can read and modify Reminders, Calendar events, and Notes after macOS pe
 ## Security Notes
 
 Orbit MCP is designed for local use only. Do not expose its local HTTP endpoint to a network interface, proxy, tunnel, or shared machine unless you understand the risk of giving another process access to your personal data.
+
+By default the server requires `Authorization: Bearer <token>` on every `/mcp` request. The token is generated on first launch, embedded in the copied client config, and can be rotated from the menu bar. The server also rejects browser cross-origin requests outside the loopback origin and caps request size to prevent local DoS.
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting and security expectations.
 

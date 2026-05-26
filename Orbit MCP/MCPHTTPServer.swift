@@ -221,7 +221,7 @@ actor MCPHTTPServer {
             // arbitrary cross-origin browser code.
             var headers: [String: String] = [
                 "Access-Control-Allow-Methods": "POST, GET, DELETE, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type, Mcp-Session-Id, MCP-Protocol-Version, Accept",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization, Mcp-Session-Id, MCP-Protocol-Version, Accept",
                 "Access-Control-Max-Age": "600"
             ]
             if let origin = request.headers["origin"], Self.isAllowedLocalOrigin(origin) {
@@ -233,6 +233,23 @@ actor MCPHTTPServer {
 
         guard request.path.hasPrefix("/mcp") else {
             return (HTTPResponse(status: 404, body: Data("Not Found".utf8)), true)
+        }
+
+        // Bearer token check (when enabled). Done after origin and OPTIONS so
+        // CORS preflights still work, and after the path check so we don't
+        // reveal the auth requirement to scanners hitting unrelated paths.
+        // Returns 401 with a `WWW-Authenticate` header per RFC 6750 so MCP
+        // clients see a clean failure mode.
+        if request.method != "OPTIONS" {
+            if !serviceFlags.authorize(authorizationHeader: request.headers["authorization"]) {
+                var headers = corsHeaders(for: request)
+                headers["WWW-Authenticate"] = "Bearer realm=\"Orbit MCP\""
+                return (HTTPResponse(
+                    status: 401,
+                    headers: headers,
+                    body: Data("Unauthorized".utf8)
+                ), true)
+            }
         }
 
         switch request.method {
@@ -461,6 +478,7 @@ nonisolated struct HTTPResponse {
         case 202: return "Accepted"
         case 204: return "No Content"
         case 400: return "Bad Request"
+        case 401: return "Unauthorized"
         case 403: return "Forbidden"
         case 404: return "Not Found"
         case 405: return "Method Not Allowed"

@@ -78,11 +78,34 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Require a bearer token on every `/mcp` request. Defaults to on so
+    /// the local endpoint isn't reachable by other local processes that
+    /// happen to know the port. Users can turn this off if they want
+    /// frictionless access from clients that don't support custom headers.
+    @Published var requireBearerToken: Bool {
+        didSet {
+            UserDefaults.standard.set(requireBearerToken, forKey: Self.requireBearerTokenKey)
+            syncServiceFlags()
+        }
+    }
+
+    /// Bearer token used for `Authorization: Bearer <token>`. Generated on
+    /// first launch and persisted across app restarts. Users can rotate it
+    /// from the menu bar.
+    @Published var bearerToken: String {
+        didSet {
+            UserDefaults.standard.set(bearerToken, forKey: Self.bearerTokenKey)
+            syncServiceFlags()
+        }
+    }
+
     private static let remindersEnabledKey = "orbit.mcp.enable.reminders"
     private static let calendarEnabledKey = "orbit.mcp.enable.calendar"
     private static let notesEnabledKey = "orbit.mcp.enable.notes"
     private static let timeEnabledKey = "orbit.mcp.enable.time"
     private static let allowDestructiveKey = "orbit.mcp.allowDestructive"
+    private static let requireBearerTokenKey = "orbit.mcp.requireBearerToken"
+    private static let bearerTokenKey = "orbit.mcp.bearerToken"
 
     let reminders = RemindersService()
     let calendar = CalendarService()
@@ -99,19 +122,32 @@ final class AppState: ObservableObject {
             Self.calendarEnabledKey: true,
             Self.notesEnabledKey: true,
             Self.timeEnabledKey: true,
-            Self.allowDestructiveKey: true
+            Self.allowDestructiveKey: true,
+            Self.requireBearerTokenKey: true
         ])
         self.remindersEnabled = defaults.bool(forKey: Self.remindersEnabledKey)
         self.calendarEnabled = defaults.bool(forKey: Self.calendarEnabledKey)
         self.notesEnabled = defaults.bool(forKey: Self.notesEnabledKey)
         self.timeEnabled = defaults.bool(forKey: Self.timeEnabledKey)
         self.allowDestructive = defaults.bool(forKey: Self.allowDestructiveKey)
+        self.requireBearerToken = defaults.bool(forKey: Self.requireBearerTokenKey)
+        // Mint a token on first launch so the saved client config is
+        // immediately usable. Subsequent launches reuse the stored token.
+        if let stored = defaults.string(forKey: Self.bearerTokenKey), !stored.isEmpty {
+            self.bearerToken = stored
+        } else {
+            let fresh = ServiceFlags.generateToken()
+            defaults.set(fresh, forKey: Self.bearerTokenKey)
+            self.bearerToken = fresh
+        }
         self.serviceFlags.update(
             reminders: remindersEnabled,
             calendar: calendarEnabled,
             notes: notesEnabled,
             time: timeEnabled,
-            allowDestructive: allowDestructive
+            allowDestructive: allowDestructive,
+            requireBearerToken: requireBearerToken,
+            bearerToken: bearerToken
         )
         Task { @MainActor in
             await self.bootstrap()
@@ -124,8 +160,16 @@ final class AppState: ObservableObject {
             calendar: calendarEnabled,
             notes: notesEnabled,
             time: timeEnabled,
-            allowDestructive: allowDestructive
+            allowDestructive: allowDestructive,
+            requireBearerToken: requireBearerToken,
+            bearerToken: bearerToken
         )
+    }
+
+    /// Replace the current bearer token with a freshly generated one. Existing
+    /// clients will need their config updated.
+    func regenerateBearerToken() {
+        bearerToken = ServiceFlags.generateToken()
     }
 
     private func bootstrap() async {
@@ -154,8 +198,24 @@ final class AppState: ObservableObject {
     }
 
     /// MCP `mcpServers` config snippet to paste into Claude Desktop, Cursor, etc.
+    /// Includes the bearer token in the request headers when token auth is on
+    /// so the snippet works the moment it's pasted into a client.
     var clientConfigJSON: String {
         let url = endpointURL
+        if requireBearerToken, !bearerToken.isEmpty {
+            return """
+            {
+              "mcpServers": {
+                "orbit": {
+                  "url": "\(url)",
+                  "headers": {
+                    "Authorization": "Bearer \(bearerToken)"
+                  }
+                }
+              }
+            }
+            """
+        }
         return """
         {
           "mcpServers": {

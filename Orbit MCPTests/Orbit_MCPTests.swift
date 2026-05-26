@@ -443,6 +443,40 @@ struct ServiceFlagsTests {
         #expect(!flags.isToolEnabled("reminders_search"))
         #expect(flags.isToolEnabled("calendar_search"))
     }
+
+    @Test func authorizeAcceptsCorrectBearerToken() {
+        let flags = ServiceFlags(requireBearerToken: true, bearerToken: "secret")
+        #expect(flags.authorize(authorizationHeader: "Bearer secret"))
+    }
+
+    @Test func authorizeRejectsWrongBearerToken() {
+        let flags = ServiceFlags(requireBearerToken: true, bearerToken: "secret")
+        #expect(!flags.authorize(authorizationHeader: "Bearer wrong"))
+        #expect(!flags.authorize(authorizationHeader: nil))
+        #expect(!flags.authorize(authorizationHeader: "secret"))      // missing scheme
+        #expect(!flags.authorize(authorizationHeader: "Basic secret"))
+    }
+
+    @Test func authorizeAllowsAnythingWhenDisabled() {
+        let flags = ServiceFlags(requireBearerToken: false, bearerToken: "ignored")
+        #expect(flags.authorize(authorizationHeader: nil))
+        #expect(flags.authorize(authorizationHeader: "Bearer anything"))
+    }
+
+    @Test func authorizeFailsClosedWhenTokenEmpty() {
+        // If auth is required but no token is configured, we should not
+        // accidentally allow all requests (fail closed).
+        let flags = ServiceFlags(requireBearerToken: true, bearerToken: "")
+        #expect(!flags.authorize(authorizationHeader: "Bearer "))
+        #expect(!flags.authorize(authorizationHeader: nil))
+    }
+
+    @Test func generatedTokenIsLongAndUrlSafe() {
+        let token = ServiceFlags.generateToken()
+        #expect(token.count >= 32)
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        #expect(token.unicodeScalars.allSatisfy { allowed.contains($0) })
+    }
 }
 
 // MARK: - TimeService.parseDate
