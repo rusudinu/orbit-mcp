@@ -4,6 +4,8 @@
 
 Orbit MCP is a macOS menu bar app that exposes local Apple services to MCP-compatible clients over a local Streamable HTTP server.
 
+You can download the MacOS binary [here](https://github.com/rusudinu/orbit-mcp/blob/main/binaries/Orbit%20MCP%20v1.0.zip).
+
 ![Orbit MCP Menubar.png](doc/img/img.png)
 ![Orbit MCP LMStudio.png](doc/img/img_1.png)
 
