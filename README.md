@@ -1,31 +1,52 @@
 # Orbit MCP
 
-![Orbit MCP Menubar.png](doc/img/orbit-mcp-icon.png)
+![Orbit MCP icon](doc/img/orbit-mcp-icon.png)
 
-Orbit MCP is a macOS menu bar app that exposes local Apple services to MCP-compatible clients over a local Streamable HTTP server.
+Orbit MCP is a macOS menu bar app that exposes local Apple Reminders, Calendar, Notes, and date/time utilities to MCP-compatible clients through a local Streamable HTTP server.
 
-You can download the MacOS binary [here](https://raw.githubusercontent.com/rusudinu/orbit-mcp/main/binaries/Orbit%20MCP%20v1.0.zip).
+The server binds to `127.0.0.1` and is intended for local clients such as Claude Desktop, Cursor, Cline, LM Studio, Codex, or any other app that supports HTTP MCP servers.
 
-![Orbit MCP Menubar.png](doc/img/img.png)
-![Orbit MCP LMStudio.png](doc/img/img_1.png)
+Download the current macOS binary: [Orbit MCP v1.0.zip](https://raw.githubusercontent.com/rusudinu/orbit-mcp/main/binaries/Orbit%20MCP%20v1.0.zip)
 
-Current tools cover:
+![Orbit MCP menu bar UI](doc/img/img.png)
+![Orbit MCP in LM Studio](doc/img/img_1.png)
 
-- Apple Reminders: list, search, create, update, complete, and delete reminders.
-- Apple Calendar: list calendars, search events, create, update, and delete events.
-- Apple Notes: list folders, search notes, read notes, create, update, and delete notes.
-- Time utilities: current time, timezone conversion, date math, differences, and formatting.
+## Table of Contents
 
-The server binds to `127.0.0.1` and is intended for local MCP clients such as Claude Desktop, Cursor, Cline, or other tools that support HTTP MCP servers.
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Build From Source](#build-from-source)
+- [Usage](#usage)
+- [Permissions](#permissions)
+- [Security Model](#security-model)
+- [Development](#development)
+- [Contributing](#contributing)
+
+## Features
+
+- **Apple Reminders**: list reminder lists, search reminders, create reminders, update reminders, complete reminders, and delete reminders.
+- **Apple Calendar**: list calendars, search events, create events, update events, and delete events.
+- **Apple Notes**: list accounts and folders, search notes, read notes, create notes, update notes, and delete notes.
+- **Date and time utilities**: get the current time, convert timezones, add durations, compute differences, and format dates.
+- **Local controls**: enable or disable tool groups from the menu bar without restarting the server.
+- **Bearer-token protection**: require `Authorization: Bearer <token>` on `/mcp` requests by default.
+- **Destructive action toggle**: hide and reject update/delete tools when destructive actions are disabled.
 
 ## Requirements
 
 - macOS
-- Xcode
-- Calendar and Reminders permissions for EventKit tools
+- Xcode, if building from source
+- Calendar and Reminders permissions for EventKit-backed tools
 - Apple Events automation permission for Notes tools
 
-## Build
+## Installation
+
+Download and unzip the macOS binary from the link above, then launch Orbit MCP. The app runs from the menu bar and displays the local MCP endpoint and client configuration.
+
+If macOS blocks the app on first launch, open it from Finder with Control-click, choose **Open**, and confirm that you want to run it.
+
+## Build From Source
 
 Open `Orbit MCP.xcodeproj` in Xcode and run the `Orbit MCP` scheme, or build from the command line:
 
@@ -37,9 +58,14 @@ The checked-in Xcode project uses `AAAAAAAA` as a placeholder Apple Development 
 
 ## Usage
 
-Launch Orbit MCP from Xcode or from the built app. The app appears in the menu bar and shows the local MCP endpoint.
+1. Launch Orbit MCP.
+2. Confirm the server is running in the menu bar popover.
+3. Enable the tool groups you want to expose: Reminders, Calendar, Notes, and Date & Time.
+4. Grant macOS permissions when prompted.
+5. Copy the generated client configuration from the menu bar UI.
+6. Paste it into your MCP client configuration.
 
-Copy the generated client configuration from the menu bar UI into your MCP client. With the default bearer-token protection on, it will look like:
+With bearer-token protection enabled, the copied configuration looks like this:
 
 ```json
 {
@@ -54,23 +80,27 @@ Copy the generated client configuration from the menu bar UI into your MCP clien
 }
 ```
 
-The token is generated on first launch and stored locally. Use the menu bar to rotate it; you can also turn the requirement off if your MCP client cannot send custom headers, but doing so lets any other local process on the Mac reach the same tools.
+The bearer token is generated on first launch and stored locally. You can rotate it from the menu bar. You can also turn the token requirement off for clients that cannot send custom headers, but doing so allows any other local process on the Mac to call the same tools if it knows the port.
 
-The app remembers the last bound port so existing MCP client configs can keep working between launches when possible.
+Orbit MCP remembers the last bound port so existing MCP client configs can keep working between launches when possible. If that port is unavailable, the app falls back to another local port and shows the updated endpoint in the menu bar.
 
-You can use it in any tools that supports MCPs, like Codex, Cursor, LMStudio etc.
-
-## Privacy And Permissions
+## Permissions
 
 Orbit MCP operates on local personal data on the Mac where it is running. It does not require a hosted backend.
 
-The app can read and modify Reminders, Calendar events, and Notes after macOS permissions are granted. Only enable the services you want exposed to your MCP client.
+- Reminders access is handled through EventKit.
+- Calendar access is handled through EventKit.
+- Notes access uses macOS Automation to control Apple Notes.
 
-## Security Notes
+Only enable the services you want exposed to your MCP client. If you disable a tool group in the menu bar, Orbit MCP stops advertising and accepting tools from that group.
 
-Orbit MCP is designed for local use only. Do not expose its local HTTP endpoint to a network interface, proxy, tunnel, or shared machine unless you understand the risk of giving another process access to your personal data.
+## Security Model
 
-By default the server requires `Authorization: Bearer <token>` on every `/mcp` request. The token is generated on first launch, embedded in the copied client config, and can be rotated from the menu bar. The server also rejects browser cross-origin requests outside the loopback origin and caps request size to prevent local DoS.
+Orbit MCP is designed for local use only. Do not expose its HTTP endpoint to a network interface, reverse proxy, tunnel, shared account, or remote automation setup unless you understand the risk of giving another process access to personal data on your Mac.
+
+By default, the server requires `Authorization: Bearer <token>` on every `/mcp` request. The token is generated on first launch, included in the copied client config, and can be rotated from the menu bar.
+
+The server also rejects browser cross-origin requests outside the loopback origin and caps request size to reduce local abuse risk.
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting and security expectations.
 
@@ -83,3 +113,7 @@ xcodebuild test -project "Orbit MCP.xcodeproj" -scheme "Orbit MCP" -destination 
 ```
 
 The UI test targets are currently lightweight launch tests.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, pull request expectations, and security-sensitive change guidance.
