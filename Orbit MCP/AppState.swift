@@ -39,7 +39,7 @@ final class AppState: ObservableObject {
     /// The port the server is actually listening on. Persisted so the user's
     /// pasted client config keeps working between launches.
     @AppStorage("orbit.mcp.lastPort") var lastPort: Int = 0
-    @AppStorage("orbit.mcp.autoStart") var autoStart: Bool = true
+    @AppStorage("orbit.mcp.autoStart") var autoStart: Bool = false
 
     /// Per-service tool exposure switches. Mutating these updates the live
     /// `serviceFlags` so the running server immediately stops listing/handling
