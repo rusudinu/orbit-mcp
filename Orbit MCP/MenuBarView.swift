@@ -8,6 +8,9 @@ import SwiftUI
 struct MenuBarView: View {
     @EnvironmentObject private var state: AppState
     @State private var copyFeedback: CopyFeedback?
+    /// When set, the popover shows an explanation of what we access and why,
+    /// and asks the user to continue before macOS shows its own prompt.
+    @State private var permissionPrime: PermissionPrime?
 
     enum CopyFeedback: Equatable {
         case url
@@ -15,7 +18,29 @@ struct MenuBarView: View {
         case token
     }
 
+    /// A pending request for a system permission, with the rationale we show
+    /// the user before triggering the macOS dialog.
+    struct PermissionPrime: Identifiable, Equatable {
+        enum Service { case reminders, calendar }
+        let id = UUID()
+        let service: Service
+        let title: String
+        let rationale: String
+    }
+
     var body: some View {
+        Group {
+            if let permissionPrime {
+                primingView(permissionPrime)
+            } else {
+                mainContent
+            }
+        }
+        .padding(14)
+        .frame(width: 360)
+    }
+
+    private var mainContent: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
             Divider()
@@ -26,8 +51,59 @@ struct MenuBarView: View {
             Divider()
             actionsSection
         }
-        .padding(14)
-        .frame(width: 360)
+    }
+
+    // MARK: Permission priming
+
+    private func primingView(_ prime: PermissionPrime) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: prime.service == .reminders ? "checklist" : "calendar")
+                    .font(.title3)
+                    .foregroundStyle(.blue)
+                Text(prime.title)
+                    .font(.headline)
+                Spacer()
+            }
+            Text(prime.rationale)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Label("macOS will show its own permission dialog next.", systemImage: "info.circle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                Button("Not now") { permissionPrime = nil }
+                Spacer()
+                Button("Continue") {
+                    let service = prime.service
+                    permissionPrime = nil
+                    switch service {
+                    case .reminders: Task { await state.requestRemindersAccess() }
+                    case .calendar: Task { await state.requestCalendarAccess() }
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+            }
+        }
+    }
+
+    private func prime(_ service: PermissionPrime.Service) {
+        switch service {
+        case .reminders:
+            permissionPrime = PermissionPrime(
+                service: .reminders,
+                title: "Allow Reminders access?",
+                rationale: "Orbit MCP will read and create reminders so the MCP client you connect (such as Claude) can list, search, add, and complete them. Your reminders stay on this Mac and are only shared with the client you explicitly connect."
+            )
+        case .calendar:
+            permissionPrime = PermissionPrime(
+                service: .calendar,
+                title: "Allow Calendar access?",
+                rationale: "Orbit MCP will read and create calendar events so the MCP client you connect (such as Claude) can list, search, add, and update them. Your events stay on this Mac and are only shared with the client you explicitly connect."
+            )
+        }
     }
 
     // MARK: Sections
@@ -59,14 +135,14 @@ struct MenuBarView: View {
                 status: state.remindersAccess,
                 enabled: $state.remindersEnabled,
                 writeOnlyHint: "Reminders is in write-only mode. Orbit MCP needs full access to read and search reminders. Re-grant in System Settings → Privacy & Security → Reminders.",
-                grant: { Task { await state.requestRemindersAccess() } }
+                grant: { prime(.reminders) }
             )
             accessRow(
                 label: "Calendar",
                 status: state.calendarAccess,
                 enabled: $state.calendarEnabled,
                 writeOnlyHint: "Calendar is in write-only mode. Orbit MCP needs full access to read and search events. Re-grant in System Settings → Privacy & Security → Calendars.",
-                grant: { Task { await state.requestCalendarAccess() } }
+                grant: { prime(.calendar) }
             )
             accessRow(
                 label: "Notes",
@@ -75,6 +151,14 @@ struct MenuBarView: View {
                 hint: "Notes uses macOS Automation. The first notes_* call will prompt for permission.",
                 grant: nil
             )
+            accessRow(
+                label: "Mail",
+                status: .granted, // managed by macOS Automation prompt on first call
+                enabled: $state.mailEnabled,
+                hint: "Mail uses macOS Automation. The first mail_* call will prompt for permission to control Mail. Exposes read, search, mark, and delete tools. Sending is a separate switch below.",
+                grant: nil
+            )
+            mailSendRow
             toolGroupRow(
                 label: "Date & Time",
                 enabled: $state.timeEnabled,
@@ -148,6 +232,27 @@ struct MenuBarView: View {
                 .labelsHidden()
                 .help("Expose \(label) tools to MCP clients")
         }
+    }
+
+    /// Sub-row under "Mail" controlling the outbound mail_send tool, which is
+    /// off by default and only meaningful when Mail tools are enabled.
+    private var mailSendRow: some View {
+        HStack(spacing: 6) {
+            Image(systemName: state.mailSendEnabled ? "paperplane.fill" : "paperplane")
+                .foregroundStyle(state.mailSendEnabled ? Color.orange : Color.secondary)
+            Text(state.mailSendEnabled ? "↳ Sending: allowed" : "↳ Sending: off")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HintButton(text: "Allows the mail_send tool, which composes and sends email to other people from your account. Off by default and independent of the read tools. Requires Mail to be enabled.")
+            Spacer()
+            Toggle("", isOn: $state.mailSendEnabled)
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .labelsHidden()
+                .disabled(!state.mailEnabled)
+                .help("Expose the mail_send tool to MCP clients")
+        }
+        .padding(.leading, 16)
     }
 
     private var destructiveRow: some View {

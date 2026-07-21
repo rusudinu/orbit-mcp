@@ -152,6 +152,68 @@ nonisolated enum MCPTools {
         "additionalProperties": true
     ]
 
+    private static let mailAccountSchema: [String: Any] = [
+        "type": "object",
+        "required": ["name", "mailboxes"],
+        "properties": [
+            "name": ["type": "string"],
+            "mailboxes": [
+                "type": "array",
+                "items": ["type": "string"]
+            ]
+        ],
+        "additionalProperties": false
+    ]
+
+    private static let mailStructureSchema: [String: Any] = [
+        "type": "object",
+        "required": ["accounts"],
+        "properties": [
+            "accounts": [
+                "type": "array",
+                "items": mailAccountSchema
+            ]
+        ],
+        "additionalProperties": false
+    ]
+
+    private static let mailMessageSummarySchema: [String: Any] = [
+        "type": "object",
+        "required": ["id", "account", "mailbox", "subject", "sender", "isRead", "isFlagged"],
+        "properties": [
+            "id": ["type": "string", "description": "Opaque identifier; pass to mail_get/mail_mark/mail_delete."],
+            "account": ["type": "string"],
+            "mailbox": ["type": "string"],
+            "subject": ["type": "string"],
+            "sender": ["type": "string"],
+            "dateSent": ["type": ["string", "null"], "format": "date-time"],
+            "dateReceived": ["type": ["string", "null"], "format": "date-time"],
+            "isRead": ["type": "boolean"],
+            "isFlagged": ["type": "boolean"]
+        ],
+        "additionalProperties": true
+    ]
+
+    private static let mailMessageSchema: [String: Any] = [
+        "type": "object",
+        "required": ["id", "account", "mailbox", "subject", "sender", "to", "cc", "isRead", "isFlagged", "content"],
+        "properties": [
+            "id": ["type": "string"],
+            "account": ["type": "string"],
+            "mailbox": ["type": "string"],
+            "subject": ["type": "string"],
+            "sender": ["type": "string"],
+            "to": ["type": "array", "items": ["type": "string"]],
+            "cc": ["type": "array", "items": ["type": "string"]],
+            "dateSent": ["type": ["string", "null"], "format": "date-time"],
+            "dateReceived": ["type": ["string", "null"], "format": "date-time"],
+            "isRead": ["type": "boolean"],
+            "isFlagged": ["type": "boolean"],
+            "content": ["type": "string"]
+        ],
+        "additionalProperties": true
+    ]
+
     private static let timeInfoSchema: [String: Any] = [
         "type": "object",
         "required": [
@@ -574,6 +636,96 @@ nonisolated enum MCPTools {
             "name": "notes_delete",
             "title": "Delete Note",
             "description": "Permanently delete a note by identifier.",
+            "inputSchema": [
+                "type": "object",
+                "required": ["id"],
+                "properties": ["id": ["type": "string"]],
+                "additionalProperties": false
+            ],
+            "outputSchema": messageSchema
+        ],
+
+        // MARK: Mail
+
+        [
+            "name": "mail_list_mailboxes",
+            "title": "List Mail Accounts and Mailboxes",
+            "description": "Return every Mail account and the names of its mailboxes. Use an account + mailbox name to scope mail_search.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [:],
+                "additionalProperties": false
+            ],
+            "outputSchema": mailStructureSchema
+        ],
+        [
+            "name": "mail_search",
+            "title": "Search Mail",
+            "description": "List recent messages, newest first. Defaults to the unified inbox across all accounts. Scope with an account and mailbox name, filter by unread, or match a case-insensitive substring against subject and sender. With a query, the most recent ~300 messages are scanned.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "account": ["type": "string", "description": "Account name (from mail_list_mailboxes) to scope to."],
+                    "mailbox": ["type": "string", "description": "Mailbox name. Special values 'inbox', 'sent', 'drafts', 'junk', 'trash' span all accounts. A custom mailbox name requires 'account'."],
+                    "query": ["type": "string", "description": "Case-insensitive substring matched against subject and sender."],
+                    "unreadOnly": ["type": "boolean", "default": false, "description": "Only return unread messages."],
+                    "limit": ["type": "integer", "minimum": 1, "maximum": 100, "default": 25]
+                ],
+                "additionalProperties": false
+            ],
+            "outputSchema": listOf(mailMessageSummarySchema)
+        ],
+        [
+            "name": "mail_get",
+            "title": "Get Message",
+            "description": "Fetch a single message by its opaque id (from mail_search), including recipients and the plaintext body.",
+            "inputSchema": [
+                "type": "object",
+                "required": ["id"],
+                "properties": ["id": ["type": "string"]],
+                "additionalProperties": false
+            ],
+            "outputSchema": mailMessageSchema
+        ],
+        [
+            "name": "mail_send",
+            "title": "Send Mail",
+            "description": "Compose and send a new email. Requires at least one 'to' recipient. Sending is off by default and has its own switch in Orbit MCP settings.",
+            "inputSchema": [
+                "type": "object",
+                "required": ["to", "subject"],
+                "properties": [
+                    "to": ["type": "array", "items": ["type": "string"], "minItems": 1, "description": "Recipient email addresses."],
+                    "cc": ["type": "array", "items": ["type": "string"]],
+                    "bcc": ["type": "array", "items": ["type": "string"]],
+                    "subject": ["type": "string"],
+                    "body": ["type": "string", "description": "Plaintext body."],
+                    "from": ["type": "string", "description": "Optional sender; must match a configured account, e.g. 'me@example.com'. Defaults to Mail's default account."]
+                ],
+                "additionalProperties": false
+            ],
+            "outputSchema": messageSchema
+        ],
+        [
+            "name": "mail_mark",
+            "title": "Mark Message",
+            "description": "Mark a message as read/unread and/or flagged/unflagged. Reversible.",
+            "inputSchema": [
+                "type": "object",
+                "required": ["id"],
+                "properties": [
+                    "id": ["type": "string"],
+                    "read": ["type": "boolean", "description": "Set read status."],
+                    "flagged": ["type": "boolean", "description": "Set flagged status."]
+                ],
+                "additionalProperties": false
+            ],
+            "outputSchema": mailMessageSummarySchema
+        ],
+        [
+            "name": "mail_delete",
+            "title": "Delete Message",
+            "description": "Move a message to the Trash mailbox by its opaque id.",
             "inputSchema": [
                 "type": "object",
                 "required": ["id"],

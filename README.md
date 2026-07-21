@@ -2,7 +2,7 @@
 
 ![Orbit MCP icon](doc/img/orbit-mcp-icon.png)
 
-Orbit MCP is a macOS menu bar app that exposes local Apple Reminders, Calendar, Notes, and date/time utilities to MCP-compatible clients through a local Streamable HTTP server.
+Orbit MCP is a macOS menu bar app that exposes local Apple Reminders, Calendar, Notes, Mail, and date/time utilities to MCP-compatible clients through a local Streamable HTTP server.
 
 The server binds to `127.0.0.1` and is intended for local clients such as Claude Desktop, Cursor, Cline, LM Studio, Codex, or any other app that supports HTTP MCP servers.
 
@@ -28,6 +28,7 @@ Download the current macOS binary: [Orbit MCP v1.0.zip](https://raw.githubuserco
 - **Apple Reminders**: list reminder lists, search reminders, create reminders, update reminders, complete reminders, and delete reminders.
 - **Apple Calendar**: list calendars, search events, create events, update events, and delete events.
 - **Apple Notes**: list accounts and folders, search notes, read notes, create notes, update notes, and delete notes.
+- **Apple Mail**: list accounts and mailboxes, search messages, read messages, mark read/flagged, send mail, and delete messages. Sending is off by default behind its own switch; delete is gated by the destructive-actions toggle.
 - **Date and time utilities**: get the current time, convert timezones, add durations, compute differences, and format dates.
 - **Local controls**: enable or disable tool groups from the menu bar without restarting the server.
 - **Bearer-token protection**: require `Authorization: Bearer <token>` on `/mcp` requests by default.
@@ -60,7 +61,7 @@ The checked-in Xcode project uses `AAAAAAAA` as a placeholder Apple Development 
 
 1. Launch Orbit MCP.
 2. Confirm the server is running in the menu bar popover.
-3. Enable the tool groups you want to expose: Reminders, Calendar, Notes, and Date & Time.
+3. Enable the tool groups you want to expose: Reminders, Calendar, Notes, Mail, and Date & Time. Mail sending is a separate switch, off by default.
 4. Grant macOS permissions when prompted.
 5. Copy the generated client configuration from the menu bar UI.
 6. Paste it into your MCP client configuration.
@@ -91,6 +92,7 @@ Orbit MCP operates on local personal data on the Mac where it is running. It doe
 - Reminders access is handled through EventKit.
 - Calendar access is handled through EventKit.
 - Notes access uses macOS Automation to control Apple Notes.
+- Mail access uses macOS Automation to control Apple Mail. The first Mail tool call prompts for permission. Sending email is opt-in via a separate switch.
 
 Only enable the services you want exposed to your MCP client. If you disable a tool group in the menu bar, Orbit MCP stops advertising and accepting tools from that group.
 

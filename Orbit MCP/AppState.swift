@@ -62,6 +62,20 @@ final class AppState: ObservableObject {
             syncServiceFlags()
         }
     }
+    @Published var mailEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(mailEnabled, forKey: Self.mailEnabledKey)
+            syncServiceFlags()
+        }
+    }
+    /// Sending mail is gated separately from the read tools and defaults off,
+    /// since it sends messages out to other people.
+    @Published var mailSendEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(mailSendEnabled, forKey: Self.mailSendEnabledKey)
+            syncServiceFlags()
+        }
+    }
     @Published var timeEnabled: Bool {
         didSet {
             UserDefaults.standard.set(timeEnabled, forKey: Self.timeEnabledKey)
@@ -102,6 +116,8 @@ final class AppState: ObservableObject {
     private static let remindersEnabledKey = "orbit.mcp.enable.reminders"
     private static let calendarEnabledKey = "orbit.mcp.enable.calendar"
     private static let notesEnabledKey = "orbit.mcp.enable.notes"
+    private static let mailEnabledKey = "orbit.mcp.enable.mail"
+    private static let mailSendEnabledKey = "orbit.mcp.enable.mailSend"
     private static let timeEnabledKey = "orbit.mcp.enable.time"
     private static let allowDestructiveKey = "orbit.mcp.allowDestructive"
     private static let requireBearerTokenKey = "orbit.mcp.requireBearerToken"
@@ -110,6 +126,7 @@ final class AppState: ObservableObject {
     let reminders = RemindersService()
     let calendar = CalendarService()
     let notes = NotesService()
+    let mail = MailService()
     let serviceFlags = ServiceFlags()
     private var server: MCPHTTPServer?
 
@@ -121,6 +138,9 @@ final class AppState: ObservableObject {
             Self.remindersEnabledKey: true,
             Self.calendarEnabledKey: true,
             Self.notesEnabledKey: true,
+            Self.mailEnabledKey: true,
+            // Sending mail is opt-in.
+            Self.mailSendEnabledKey: false,
             Self.timeEnabledKey: true,
             Self.allowDestructiveKey: true,
             Self.requireBearerTokenKey: true
@@ -128,6 +148,8 @@ final class AppState: ObservableObject {
         self.remindersEnabled = defaults.bool(forKey: Self.remindersEnabledKey)
         self.calendarEnabled = defaults.bool(forKey: Self.calendarEnabledKey)
         self.notesEnabled = defaults.bool(forKey: Self.notesEnabledKey)
+        self.mailEnabled = defaults.bool(forKey: Self.mailEnabledKey)
+        self.mailSendEnabled = defaults.bool(forKey: Self.mailSendEnabledKey)
         self.timeEnabled = defaults.bool(forKey: Self.timeEnabledKey)
         self.allowDestructive = defaults.bool(forKey: Self.allowDestructiveKey)
         self.requireBearerToken = defaults.bool(forKey: Self.requireBearerTokenKey)
@@ -144,6 +166,8 @@ final class AppState: ObservableObject {
             reminders: remindersEnabled,
             calendar: calendarEnabled,
             notes: notesEnabled,
+            mail: mailEnabled,
+            mailSend: mailSendEnabled,
             time: timeEnabled,
             allowDestructive: allowDestructive,
             requireBearerToken: requireBearerToken,
@@ -159,6 +183,8 @@ final class AppState: ObservableObject {
             reminders: remindersEnabled,
             calendar: calendarEnabled,
             notes: notesEnabled,
+            mail: mailEnabled,
+            mailSend: mailSendEnabled,
             time: timeEnabled,
             allowDestructive: allowDestructive,
             requireBearerToken: requireBearerToken,
@@ -177,12 +203,11 @@ final class AppState: ObservableObject {
         if autoStart {
             await startServer()
         }
-        if remindersEnabled, remindersAccess == .unknown {
-            await requestRemindersAccess()
-        }
-        if calendarEnabled, calendarAccess == .unknown {
-            await requestCalendarAccess()
-        }
+        // Intentionally does NOT request Reminders/Calendar access here. We
+        // never trigger a system permission prompt without first explaining,
+        // in-app, what we access and why — the user grants from the menu bar
+        // (see the "Grant" flow), which shows that rationale before macOS
+        // shows its own dialog.
     }
 
     /// The port to display/copy to MCP clients. 0 while the server has not yet bound.
@@ -270,7 +295,7 @@ final class AppState: ObservableObject {
 
         var lastError: Error?
         for candidate in attempts {
-            let server = MCPHTTPServer(port: candidate, reminders: reminders, calendar: calendar, notes: notes, serviceFlags: serviceFlags)
+            let server = MCPHTTPServer(port: candidate, reminders: reminders, calendar: calendar, notes: notes, mail: mail, serviceFlags: serviceFlags)
             do {
                 let bound = try await server.start()
                 self.server = server

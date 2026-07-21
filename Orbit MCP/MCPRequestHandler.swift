@@ -57,6 +57,7 @@ actor MCPRequestHandler {
     private let reminders: RemindersService
     private let calendar: CalendarService
     private let notes: NotesService
+    private let mail: MailService
     private let serviceFlags: ServiceFlags
     private let serverName = "orbit-mcp"
     private let serverVersion = "0.2.0"
@@ -72,10 +73,11 @@ actor MCPRequestHandler {
 
     private var sessions: [String: MCPSessionState] = [:]
 
-    init(reminders: RemindersService, calendar: CalendarService, notes: NotesService, serviceFlags: ServiceFlags) {
+    init(reminders: RemindersService, calendar: CalendarService, notes: NotesService, mail: MailService, serviceFlags: ServiceFlags) {
         self.reminders = reminders
         self.calendar = calendar
         self.notes = notes
+        self.mail = mail
         self.serviceFlags = serviceFlags
     }
 
@@ -264,6 +266,9 @@ actor MCPRequestHandler {
         } catch let err as NotesError {
             if isNotification { return nil }
             return Self.errorObject(id: id, code: err.mcpCode, message: err.errorDescription ?? "Notes error")
+        } catch let err as MailError {
+            if isNotification { return nil }
+            return Self.errorObject(id: id, code: err.mcpCode, message: err.errorDescription ?? "Mail error")
         } catch let err as TimeError {
             if isNotification { return nil }
             return Self.errorObject(id: id, code: err.mcpCode, message: err.errorDescription ?? "Time error")
@@ -298,7 +303,7 @@ actor MCPRequestHandler {
                 "capabilities": [
                     "tools": [:]
                 ],
-                "instructions": "Tools to read and modify the user's data on this Mac. Currently exposes Apple Reminders, Calendar, and Notes. Discover containers first (reminders_list_lists, calendar_list_calendars, notes_list_folders) before creating items, and pass identifiers from those calls back into create/update tools."
+                "instructions": "Tools to read and modify the user's data on this Mac. Currently exposes Apple Reminders, Calendar, Notes, and Mail. Discover containers first (reminders_list_lists, calendar_list_calendars, notes_list_folders, mail_list_mailboxes) before creating items, and pass identifiers from those calls back into get/update tools. Mail message ids from mail_search are opaque — pass them verbatim to mail_get/mail_mark/mail_delete."
             ]
         case "ping":
             return [:]
@@ -573,6 +578,68 @@ actor MCPRequestHandler {
             try await notes.deleteNote(id: id)
             return Self.toolResult(text: "Deleted note \(id).")
 
+        // MARK: Mail
+
+        case "mail_list_mailboxes":
+            let structure = try await mail.listMailboxes()
+            return Self.toolResult(json: structure)
+
+        case "mail_search":
+            let q = MailService.SearchQuery(
+                account: arguments["account"] as? String,
+                mailbox: arguments["mailbox"] as? String,
+                query: arguments["query"] as? String,
+                unreadOnly: arguments["unreadOnly"] as? Bool ?? false,
+                limit: arguments["limit"] as? Int ?? 25
+            )
+            let results = try await mail.search(q)
+            return Self.toolResult(json: results)
+
+        case "mail_get":
+            guard let id = arguments["id"] as? String else {
+                throw ToolInputError("'id' is required")
+            }
+            let message = try await mail.getMessage(id: id)
+            return Self.toolResult(json: message)
+
+        case "mail_send":
+            guard let to = stringArray(arguments["to"]), !to.isEmpty else {
+                throw ToolInputError("'to' must be a non-empty array of email addresses")
+            }
+            guard let subject = arguments["subject"] as? String else {
+                throw ToolInputError("'subject' is required")
+            }
+            let input = MailService.SendInput(
+                to: to,
+                cc: stringArray(arguments["cc"]) ?? [],
+                bcc: stringArray(arguments["bcc"]) ?? [],
+                subject: subject,
+                body: arguments["body"] as? String ?? "",
+                from: arguments["from"] as? String
+            )
+            try await mail.send(input)
+            let recipients = to.joined(separator: ", ")
+            return Self.toolResult(text: "Sent email to \(recipients).")
+
+        case "mail_mark":
+            guard let id = arguments["id"] as? String else {
+                throw ToolInputError("'id' is required")
+            }
+            let read = arguments["read"] as? Bool
+            let flagged = arguments["flagged"] as? Bool
+            if read == nil && flagged == nil {
+                throw ToolInputError("Provide 'read' and/or 'flagged'")
+            }
+            let updated = try await mail.mark(id: id, read: read, flagged: flagged)
+            return Self.toolResult(json: updated)
+
+        case "mail_delete":
+            guard let id = arguments["id"] as? String else {
+                throw ToolInputError("'id' is required")
+            }
+            try await mail.deleteMessage(id: id)
+            return Self.toolResult(text: "Moved message to Trash.")
+
         // MARK: Time
 
         case "time_now":
@@ -685,6 +752,13 @@ actor MCPRequestHandler {
             "content": [["type": "text", "text": message]],
             "isError": true
         ]
+    }
+
+    /// Coerce a JSON value into an array of non-empty strings, or nil.
+    private func stringArray(_ value: Any?) -> [String]? {
+        guard let array = value as? [Any] else { return nil }
+        let strings = array.compactMap { $0 as? String }.filter { !$0.isEmpty }
+        return strings.isEmpty ? nil : strings
     }
 
     private func parseDate(_ value: Any?) -> Date? {

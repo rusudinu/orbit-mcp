@@ -38,10 +38,12 @@ actor RemindersService {
                 "Reminders is in write-only mode. Grant full access in System Settings → Privacy & Security → Reminders."
             )
         case .notDetermined:
-            let granted = await requestAccess()
-            if !granted {
-                throw RemindersError.accessDenied("Access to Reminders was not granted.")
-            }
+            // Don't trigger the macOS permission prompt from a background tool
+            // call. We only prompt after explaining why, in-app. Point the user
+            // at that flow instead.
+            throw RemindersError.accessDenied(
+                "Reminders access hasn’t been granted yet. Open Orbit MCP from the menu bar and grant Reminders access — it explains what’s accessed and why before macOS asks."
+            )
         case .denied:
             throw RemindersError.accessDenied("Access to Reminders is denied. Enable it in System Settings → Privacy & Security → Reminders.")
         case .restricted:

@@ -16,6 +16,7 @@ actor MCPHTTPServer {
     private let reminders: RemindersService
     private let calendar: CalendarService
     private let notes: NotesService
+    private let mail: MailService
     private let serviceFlags: ServiceFlags
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: NWConnection] = [:]
@@ -29,13 +30,14 @@ actor MCPHTTPServer {
     private static let maxBodyBytes = 8 * 1024 * 1024        // 8 MB of body
     private static let maxBufferedBytes = maxHeaderBytes + maxBodyBytes
 
-    init(port: UInt16, reminders: RemindersService, calendar: CalendarService, notes: NotesService, serviceFlags: ServiceFlags) {
+    init(port: UInt16, reminders: RemindersService, calendar: CalendarService, notes: NotesService, mail: MailService, serviceFlags: ServiceFlags) {
         self.port = port
         self.reminders = reminders
         self.calendar = calendar
         self.notes = notes
+        self.mail = mail
         self.serviceFlags = serviceFlags
-        self.handler = MCPRequestHandler(reminders: reminders, calendar: calendar, notes: notes, serviceFlags: serviceFlags)
+        self.handler = MCPRequestHandler(reminders: reminders, calendar: calendar, notes: notes, mail: mail, serviceFlags: serviceFlags)
     }
 
     func start() async throws -> UInt16 {

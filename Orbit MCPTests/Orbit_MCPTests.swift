@@ -106,6 +106,7 @@ struct MCPRequestHandlerTests {
             reminders: RemindersService(),
             calendar: CalendarService(),
             notes: NotesService(),
+            mail: MailService(),
             serviceFlags: flags
         )
     }
@@ -442,6 +443,55 @@ struct ServiceFlagsTests {
         let flags = ServiceFlags(reminders: false)
         #expect(!flags.isToolEnabled("reminders_search"))
         #expect(flags.isToolEnabled("calendar_search"))
+    }
+
+    @Test func mailReadToolsFollowMailFlag() {
+        let on = ServiceFlags(mail: true)
+        #expect(on.isToolEnabled("mail_search"))
+        #expect(on.isToolEnabled("mail_get"))
+        #expect(on.isToolEnabled("mail_mark"))
+        let off = ServiceFlags(mail: false)
+        #expect(!off.isToolEnabled("mail_search"))
+        #expect(!off.isToolEnabled("mail_send"))
+    }
+
+    @Test func mailSendRequiresItsOwnFlag() {
+        // Mail on, send off (the default): read tools work, sending does not.
+        let readOnly = ServiceFlags(mail: true, mailSend: false)
+        #expect(readOnly.isToolEnabled("mail_search"))
+        #expect(!readOnly.isToolEnabled("mail_send"))
+
+        // Send requires Mail to also be enabled.
+        let sendNoMail = ServiceFlags(mail: false, mailSend: true)
+        #expect(!sendNoMail.isToolEnabled("mail_send"))
+
+        let sendOn = ServiceFlags(mail: true, mailSend: true)
+        #expect(sendOn.isToolEnabled("mail_send"))
+    }
+
+    @Test func mailDeleteIsDestructive() {
+        #expect(ServiceFlags.destructiveToolNames.contains("mail_delete"))
+        let noDestructive = ServiceFlags(mail: true, allowDestructive: false)
+        #expect(!noDestructive.isToolEnabled("mail_delete"))
+        // Non-destructive mail tools stay available.
+        #expect(noDestructive.isToolEnabled("mail_search"))
+    }
+
+    @Test func mailMessageIdRoundTrips() throws {
+        let service = MailService()
+        let ref = MailMessageRef(account: "iCloud / weird|name", mailbox: "INBOX", id: 4815162342)
+        let id = service.encodeRef(ref)
+        // Opaque id must be URL/header-safe (base64url, no padding).
+        #expect(!id.contains("+") && !id.contains("/") && !id.contains("="))
+        let decoded = try service.decodeRef(id)
+        #expect(decoded.account == ref.account)
+        #expect(decoded.mailbox == ref.mailbox)
+        #expect(decoded.id == ref.id)
+    }
+
+    @Test func mailMessageIdRejectsGarbage() {
+        let service = MailService()
+        #expect(throws: (any Error).self) { try service.decodeRef("not-a-real-id!!") }
     }
 
     @Test func authorizeAcceptsCorrectBearerToken() {

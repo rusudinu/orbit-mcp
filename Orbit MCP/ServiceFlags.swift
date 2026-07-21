@@ -15,6 +15,8 @@ nonisolated final class ServiceFlags: @unchecked Sendable {
     private var _reminders: Bool
     private var _calendar: Bool
     private var _notes: Bool
+    private var _mail: Bool
+    private var _mailSend: Bool
     private var _time: Bool
     private var _allowDestructive: Bool
     private var _requireBearerToken: Bool
@@ -29,13 +31,16 @@ nonisolated final class ServiceFlags: @unchecked Sendable {
         "calendar_update",
         "calendar_delete",
         "notes_update",
-        "notes_delete"
+        "notes_delete",
+        "mail_delete"
     ]
 
     init(
         reminders: Bool = true,
         calendar: Bool = true,
         notes: Bool = true,
+        mail: Bool = true,
+        mailSend: Bool = false,
         time: Bool = true,
         allowDestructive: Bool = true,
         requireBearerToken: Bool = true,
@@ -44,6 +49,8 @@ nonisolated final class ServiceFlags: @unchecked Sendable {
         self._reminders = reminders
         self._calendar = calendar
         self._notes = notes
+        self._mail = mail
+        self._mailSend = mailSend
         self._time = time
         self._allowDestructive = allowDestructive
         self._requireBearerToken = requireBearerToken
@@ -63,6 +70,16 @@ nonisolated final class ServiceFlags: @unchecked Sendable {
     var notes: Bool {
         lock.lock(); defer { lock.unlock() }
         return _notes
+    }
+
+    var mail: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return _mail
+    }
+
+    var mailSend: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return _mailSend
     }
 
     var time: Bool {
@@ -85,11 +102,13 @@ nonisolated final class ServiceFlags: @unchecked Sendable {
         return _bearerToken
     }
 
-    func update(reminders: Bool, calendar: Bool, notes: Bool, time: Bool, allowDestructive: Bool, requireBearerToken: Bool, bearerToken: String) {
+    func update(reminders: Bool, calendar: Bool, notes: Bool, mail: Bool, mailSend: Bool, time: Bool, allowDestructive: Bool, requireBearerToken: Bool, bearerToken: String) {
         lock.lock()
         _reminders = reminders
         _calendar = calendar
         _notes = notes
+        _mail = mail
+        _mailSend = mailSend
         _time = time
         _allowDestructive = allowDestructive
         _requireBearerToken = requireBearerToken
@@ -107,6 +126,12 @@ nonisolated final class ServiceFlags: @unchecked Sendable {
         if toolName.hasPrefix("reminders_") { return reminders }
         if toolName.hasPrefix("calendar_") { return calendar }
         if toolName.hasPrefix("notes_") { return notes }
+        if toolName.hasPrefix("mail_") {
+            guard mail else { return false }
+            // Sending has its own switch on top of the Mail family toggle.
+            if toolName == "mail_send" { return mailSend }
+            return true
+        }
         if toolName.hasPrefix("time_") { return time }
         return true
     }

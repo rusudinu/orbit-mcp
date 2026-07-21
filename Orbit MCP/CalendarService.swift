@@ -33,10 +33,12 @@ actor CalendarService {
                 "Calendar is in write-only mode. Grant full access in System Settings → Privacy & Security → Calendars."
             )
         case .notDetermined:
-            let granted = await requestAccess()
-            if !granted {
-                throw CalendarError.accessDenied("Access to Calendar was not granted.")
-            }
+            // Don't trigger the macOS permission prompt from a background tool
+            // call. We only prompt after explaining why, in-app. Point the user
+            // at that flow instead.
+            throw CalendarError.accessDenied(
+                "Calendar access hasn’t been granted yet. Open Orbit MCP from the menu bar and grant Calendar access — it explains what’s accessed and why before macOS asks."
+            )
         case .denied:
             throw CalendarError.accessDenied("Access to Calendar is denied. Enable it in System Settings → Privacy & Security → Calendars.")
         case .restricted:
