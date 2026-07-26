@@ -1,0 +1,22 @@
+name: Auto-assign
+
+# Puts every new pull request in front of a maintainer. CODEOWNERS cannot do
+# this: code owners are a paid GitHub feature and never fire in private
+# repositories on the org's Free plan.
+#
+# `pull_request_target` is required so Dependabot pull requests get a
+# write-capable GITHUB_TOKEN. Nothing from the PR head is checked out. See
+# codingshadows/codingshadows-workflows for the shared implementation.
+
+on:
+  pull_request_target:
+    types: [opened, ready_for_review, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  auto-assign:
+    uses: codingshadows/codingshadows-workflows/.github/workflows/auto-assign.yml@main
+    with:
+      runs-on: csh-cluster-small
