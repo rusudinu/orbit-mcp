@@ -1,0 +1,30 @@
+name: Workflow Hygiene
+
+# Guards this repository's own concurrency policy: a CI workflow must cancel the
+# run a newer push supersedes, and a preview workflow must not, because
+# preview-build-push.yml cancels on its build job instead. The rules, and why
+# each one exists, live in the reusable workflow this calls.
+#
+# Only a workflow file can break the policy, so this only runs when one changes.
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+
+concurrency:
+  group: workflow-hygiene-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  hygiene:
+    uses: codingshadows/codingshadows-workflows/.github/workflows/workflow-hygiene.yml@main
+    with:
+      runs-on: csh-cluster-small
