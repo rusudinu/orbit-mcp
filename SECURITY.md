@@ -17,7 +17,7 @@ Use GitHub private vulnerability reporting if it is enabled for this repository.
 
 ## Security Model
 
-Orbit MCP runs a local MCP HTTP server intended only for clients on the same Mac. It exposes tools that can read and modify Apple Reminders, Calendar, and Notes after macOS permissions are granted.
+Orbit MCP runs a local MCP HTTP server intended only for clients on the same Mac. It exposes tools that can read and modify Apple Reminders, Calendar, Notes, and Mail after macOS permissions are granted. Mail sending is opt-in behind its own switch (off by default), and update/delete tools are gated by a separate destructive-actions toggle.
 
 Do not expose the MCP endpoint through a public interface, reverse proxy, tunnel, remote desktop automation, or shared account without adding additional access controls.
 
@@ -28,6 +28,7 @@ Orbit MCP may access:
 - Reminders through EventKit.
 - Calendar events through EventKit.
 - Notes through Apple Events automation of Apple Notes.
+- Mail through Apple Events automation of Apple Mail, including sending messages when the Mail-send switch is enabled.
 
 macOS permission prompts are part of the safety boundary. Users should grant only the access they intend to expose to their local MCP clients.
 

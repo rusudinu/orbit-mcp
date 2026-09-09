@@ -2,7 +2,7 @@
 
 Thanks for taking the time to improve Orbit MCP.
 
-Orbit MCP is a local macOS app that can read and modify personal data through Reminders, Calendar, and Notes permissions. Treat changes to tool behavior, permissions, networking, and data mutation as security-sensitive.
+Orbit MCP is a local macOS app that can read and modify personal data through Reminders, Calendar, Notes, and Mail permissions. Treat changes to tool behavior, permissions, networking, and data mutation as security-sensitive.
 
 ## Development Setup
 
@@ -40,7 +40,7 @@ Use extra care when changing:
 - The local HTTP server, CORS behavior, request parsing, or session handling.
 - Tool availability, destructive actions, or write/delete behavior.
 - macOS entitlements, Info.plist privacy strings, or permission prompts.
-- AppleScript used to interact with Notes.
+- AppleScript used to interact with Notes and Mail.
 
 If a change could let another local process read, modify, or delete user data unexpectedly, call that out explicitly in the pull request.
 

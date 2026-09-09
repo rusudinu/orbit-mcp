@@ -25,8 +25,8 @@ Download the current macOS binary: [Orbit MCP v1.0.zip](https://raw.githubuserco
 
 ## Features
 
-- **Apple Reminders**: list reminder lists, search reminders, create reminders, update reminders, complete reminders, and delete reminders.
-- **Apple Calendar**: list calendars, search events, create events, update events, and delete events.
+- **Apple Reminders**: list reminder lists, search reminders, get a reminder, create reminders, update reminders, complete reminders, and delete reminders.
+- **Apple Calendar**: list calendars, search events, get an event, create events, update events, and delete events.
 - **Apple Notes**: list accounts and folders, search notes, read notes, create notes, update notes, and delete notes.
 - **Apple Mail**: list accounts and mailboxes, search messages, read messages, mark read/flagged, send mail, and delete messages. Sending is off by default behind its own switch; delete is gated by the destructive-actions toggle.
 - **Date and time utilities**: get the current time, convert timezones, add durations, compute differences, and format dates.
@@ -114,7 +114,10 @@ Run tests with:
 xcodebuild test -project "Orbit MCP.xcodeproj" -scheme "Orbit MCP" -destination "platform=macOS"
 ```
 
-The UI test targets are currently lightweight launch tests.
+`Orbit MCPTests` is a unit test target (Swift Testing) covering the parts of
+the server that don't need Apple-service permissions: HTTP request parsing,
+JSON-RPC/session lifecycle in `MCPRequestHandler`, `ServiceFlags` tool
+gating and bearer-token authorization, and `TimeService` date parsing.
 
 ## Contributing
 
